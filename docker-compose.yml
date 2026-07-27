@@ -1,0 +1,70 @@
+services:
+  db:
+    container_name: masterly-chatbot-db
+    image: postgres:18
+    environment:
+      - POSTGRES_DB=postgres
+      - POSTGRES_USER=${INTERNAL_DB_USERNAME:-chatbot_admin}
+      - POSTGRES_PASSWORD=${INTERNAL_DB_PASSWORD:?set INTERNAL_DB_PASSWORD in .env}
+    volumes:
+      - db-data:/var/lib/postgresql
+    ports:
+      - "2010:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${INTERNAL_DB_USERNAME:-chatbot_admin} -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  sync:
+    container_name: masterly-chatbot-sync
+    image: postgres:18
+    entrypoint: ["bash", "/sync/sync.sh"]
+    environment:
+      - SOURCE_DB_HOST=${SOURCE_DB_HOST:-host.docker.internal}
+      - SOURCE_DB_PORT=${SOURCE_DB_PORT:-2001}
+      - SOURCE_DB_DATABASE=${SOURCE_DB_DATABASE:-masterly}
+      - SOURCE_DB_USERNAME=${SOURCE_DB_USERNAME:-laravel}
+      - SOURCE_DB_PASSWORD=${SOURCE_DB_PASSWORD:?set SOURCE_DB_PASSWORD in .env}
+      - INTERNAL_DB_HOST=db
+      - INTERNAL_DB_PORT=5432
+      - INTERNAL_DB_USERNAME=${INTERNAL_DB_USERNAME:-chatbot_admin}
+      - INTERNAL_DB_PASSWORD=${INTERNAL_DB_PASSWORD:?set INTERNAL_DB_PASSWORD in .env}
+      - CHATBOT_DB_PASSWORD=${CHATBOT_DB_PASSWORD:?set CHATBOT_DB_PASSWORD in .env}
+      - SYNC_INTERVAL_SECONDS=${SYNC_INTERVAL_SECONDS:-3600}
+    volumes:
+      - ./sync:/sync:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  app:
+    container_name: masterly-chatbot-app
+    build: .
+    environment:
+      - PORT=8080
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-opus-5}
+      - CHAT_USERNAME=${CHAT_USERNAME}
+      - CHAT_PASSWORD=${CHAT_PASSWORD}
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_DATABASE=masterly_snapshot
+      - DB_USERNAME=chatbot
+      - DB_PASSWORD=${CHATBOT_DB_PASSWORD}
+    volumes:
+      - ./:/app
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  db-data:
