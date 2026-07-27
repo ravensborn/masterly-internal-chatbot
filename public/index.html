@@ -1,0 +1,1275 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="color-scheme" content="dark light" />
+    <title>Masterly Internal Chatbot</title>
+    <style>
+      :root {
+        --bg: #0b1220;
+        --panel: #0f172a;
+        --card: #161f33;
+        --line: #26324a;
+        --line-soft: #1c2740;
+        --text: #e6ecf5;
+        --muted: #94a3b8;
+        --faint: #64748b;
+        --accent: #6366f1;
+        --accent-soft: #6366f126;
+        --accent-text: #c7d2fe;
+        --danger: #f87171;
+        --danger-soft: #f8717119;
+        --shadow: 0 10px 30px #00000059;
+        --radius: 12px;
+      }
+      :root[data-theme='light'] {
+        --bg: #f6f7fb;
+        --panel: #ffffff;
+        --card: #ffffff;
+        --line: #e2e6ef;
+        --line-soft: #eef1f6;
+        --text: #16202f;
+        --muted: #5b6779;
+        --faint: #8a94a4;
+        --accent: #4f46e5;
+        --accent-soft: #4f46e514;
+        --accent-text: #4338ca;
+        --danger: #dc2626;
+        --danger-soft: #dc26260f;
+        --shadow: 0 10px 30px #0f172a14;
+      }
+
+      * { box-sizing: border-box; }
+      html, body { height: 100%; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 15px/1.65 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      button, input, textarea { font: inherit; color: inherit; }
+      ::selection { background: var(--accent); color: #fff; }
+
+      /* ---------- layout ---------- */
+      .app { display: flex; height: 100%; overflow: hidden; }
+
+      .sidebar {
+        width: 268px;
+        flex: 0 0 268px;
+        display: flex;
+        flex-direction: column;
+        background: var(--panel);
+        border-right: 1px solid var(--line);
+      }
+      .sidebar-head { padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+      .brand { display: flex; align-items: center; gap: 9px; padding: 4px 4px 0; }
+      .brand .dot {
+        width: 9px; height: 9px; border-radius: 50%;
+        background: #34d399; box-shadow: 0 0 0 3px #34d39926;
+      }
+      .brand strong { font-size: 14px; font-weight: 650; letter-spacing: 0.2px; }
+
+      .btn {
+        display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+        border-radius: 10px;
+        border: 1px solid var(--line);
+        background: transparent;
+        padding: 8px 13px;
+        cursor: pointer;
+        transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+        white-space: nowrap;
+      }
+      .btn:hover:not(:disabled) { background: var(--line-soft); border-color: var(--accent); }
+      .btn:disabled { opacity: 0.45; cursor: default; }
+      .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+      .btn.primary:hover:not(:disabled) { background: var(--accent); filter: brightness(1.1); }
+      .btn.icon { padding: 7px; border-color: transparent; color: var(--muted); border-radius: 9px; }
+      .btn.icon:hover:not(:disabled) { color: var(--text); background: var(--line-soft); border-color: var(--line); }
+      .btn svg { width: 16px; height: 16px; flex: none; }
+
+      .search { position: relative; }
+      .search input {
+        width: 100%;
+        padding: 8px 10px 8px 31px;
+        border-radius: 10px;
+        border: 1px solid var(--line);
+        background: var(--bg);
+        font-size: 13px;
+      }
+      .search input:focus { outline: none; border-color: var(--accent); }
+      .search svg {
+        position: absolute; left: 9px; top: 50%; transform: translateY(-50%);
+        width: 14px; height: 14px; color: var(--faint); pointer-events: none;
+      }
+
+      .conversations { flex: 1; overflow-y: auto; padding: 4px 8px 12px; }
+      .group-label {
+        padding: 12px 8px 5px;
+        font-size: 11px; font-weight: 650; letter-spacing: 0.7px;
+        text-transform: uppercase; color: var(--faint);
+      }
+      .conv {
+        display: flex; align-items: center; gap: 6px;
+        padding: 8px 8px 8px 10px;
+        border-radius: 10px;
+        cursor: pointer;
+        border: 1px solid transparent;
+      }
+      .conv:hover { background: var(--line-soft); }
+      .conv.active { background: var(--accent-soft); border-color: var(--accent); }
+      .conv-body { flex: 1; min-width: 0; }
+      .conv-title {
+        font-size: 13.5px;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      }
+      .conv.active .conv-title { color: var(--accent-text); font-weight: 600; }
+      .conv-meta { font-size: 11.5px; color: var(--faint); margin-top: 1px; }
+      .conv-actions { display: flex; gap: 2px; opacity: 0; }
+      .conv:hover .conv-actions, .conv.active .conv-actions { opacity: 1; }
+      .conv-actions .btn.icon { padding: 5px; }
+      .conv-actions .btn.icon svg { width: 14px; height: 14px; }
+      .conv-actions .btn.icon.danger:hover { color: var(--danger); background: var(--danger-soft); border-color: var(--danger); }
+      .sidebar-empty { padding: 18px 10px; color: var(--faint); font-size: 13px; text-align: center; }
+
+      .sidebar-foot {
+        border-top: 1px solid var(--line);
+        padding: 9px 12px;
+        display: flex; align-items: center; gap: 8px;
+        font-size: 12px; color: var(--faint);
+      }
+      .sidebar-foot .spacer { flex: 1; }
+
+      .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+      .topbar {
+        display: flex; align-items: center; gap: 12px;
+        padding: 11px 18px;
+        border-bottom: 1px solid var(--line);
+        background: var(--panel);
+      }
+      .topbar h1 {
+        margin: 0; font-size: 15px; font-weight: 600;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      }
+      .topbar .sub { font-size: 12.5px; color: var(--faint); white-space: nowrap; }
+      .topbar .spacer { flex: 1; }
+      #menu-toggle { display: none; }
+
+      .scroller { flex: 1; overflow-y: auto; position: relative; scroll-behavior: smooth; }
+      #transcript {
+        max-width: 840px;
+        margin: 0 auto;
+        padding: 24px 20px 8px;
+        display: flex; flex-direction: column; gap: 20px;
+      }
+
+      /* ---------- messages ---------- */
+      .turn { display: flex; flex-direction: column; gap: 6px; }
+      .turn.user { align-items: flex-end; }
+      .role {
+        display: flex; align-items: center; gap: 6px;
+        font-size: 11.5px; font-weight: 600; letter-spacing: 0.4px;
+        text-transform: uppercase; color: var(--faint);
+        padding: 0 4px;
+      }
+      .role .badge {
+        width: 18px; height: 18px; border-radius: 5px;
+        display: grid; place-items: center;
+        font-size: 10px; font-weight: 700; letter-spacing: 0;
+        background: var(--line-soft); color: var(--muted);
+      }
+      .turn.assistant .role .badge { background: var(--accent); color: #fff; }
+      .bubble {
+        padding: 12px 15px;
+        border-radius: var(--radius);
+        overflow-wrap: anywhere;
+        max-width: 100%;
+      }
+      .turn.user .bubble {
+        background: var(--accent); color: #fff;
+        max-width: 82%;
+        border-bottom-right-radius: 4px;
+        white-space: pre-wrap;
+      }
+      .turn.assistant .bubble {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-bottom-left-radius: 4px;
+      }
+      .turn.error .bubble {
+        background: var(--danger-soft);
+        border: 1px solid var(--danger);
+        color: var(--danger);
+        white-space: pre-wrap;
+      }
+      .turn .actions { display: flex; gap: 4px; padding: 0 2px; opacity: 0; transition: opacity 0.15s; }
+      .turn:hover .actions, .turn:focus-within .actions { opacity: 1; }
+      .turn .actions .btn { padding: 4px 9px; font-size: 12px; color: var(--muted); }
+
+      /* markdown blocks inside an assistant bubble */
+      .bubble > *:first-child { margin-top: 0; }
+      .bubble > *:last-child { margin-bottom: 0; }
+      .bubble p { margin: 0 0 10px; white-space: pre-wrap; }
+      .bubble h3 { margin: 16px 0 8px; font-size: 15px; font-weight: 650; }
+      .bubble ul, .bubble ol { margin: 0 0 10px; padding-left: 22px; }
+      .bubble li { margin: 3px 0; }
+      .bubble hr { border: none; border-top: 1px solid var(--line); margin: 14px 0; }
+      .bubble blockquote {
+        margin: 0 0 10px; padding: 2px 0 2px 12px;
+        border-left: 3px solid var(--line); color: var(--muted);
+      }
+      .bubble code {
+        font: 0.88em ui-monospace, SFMono-Regular, Menlo, monospace;
+        background: var(--line-soft);
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        padding: 1px 5px;
+      }
+      .code-block { position: relative; margin: 0 0 12px; }
+      .code-block pre {
+        margin: 0;
+        padding: 12px 13px;
+        overflow-x: auto;
+        background: var(--bg);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+        white-space: pre;
+      }
+      .code-block .copy {
+        position: absolute; top: 7px; right: 7px;
+        padding: 3px 8px; font-size: 11.5px;
+        background: var(--panel); color: var(--muted);
+        opacity: 0; transition: opacity 0.15s;
+      }
+      .code-block:hover .copy { opacity: 1; }
+      .table-wrap { overflow-x: auto; margin: 0 0 12px; border: 1px solid var(--line); border-radius: 10px; }
+      .bubble table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+      .bubble th, .bubble td {
+        padding: 7px 12px;
+        text-align: left;
+        border-bottom: 1px solid var(--line-soft);
+        white-space: nowrap;
+      }
+      .bubble th { background: var(--line-soft); font-weight: 620; color: var(--muted); }
+      .bubble tbody tr:last-child td { border-bottom: none; }
+      .bubble tbody tr:hover td { background: var(--line-soft); }
+      .bubble td.num, .bubble th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+      /* pending indicator */
+      .pending { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 14px; }
+      .dots { display: inline-flex; gap: 4px; }
+      .dots i {
+        width: 6px; height: 6px; border-radius: 50%; background: var(--accent);
+        animation: pulse 1.2s ease-in-out infinite;
+      }
+      .dots i:nth-child(2) { animation-delay: 0.15s; }
+      .dots i:nth-child(3) { animation-delay: 0.3s; }
+      @keyframes pulse { 0%, 60%, 100% { opacity: 0.25; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-3px); } }
+      .elapsed { font-variant-numeric: tabular-nums; color: var(--faint); font-size: 12.5px; }
+
+      /* ---------- empty state ---------- */
+      .empty { text-align: center; padding: 8vh 10px 0; }
+      .empty h2 { margin: 0 0 6px; font-size: 21px; font-weight: 650; }
+      .empty p { margin: 0 0 22px; color: var(--muted); }
+      .chips { display: flex; flex-wrap: wrap; gap: 9px; justify-content: center; max-width: 660px; margin: 0 auto; }
+      .chip {
+        border: 1px solid var(--line);
+        background: var(--card);
+        border-radius: 999px;
+        padding: 8px 15px;
+        font-size: 13.5px;
+        color: var(--muted);
+        cursor: pointer;
+        text-align: left;
+      }
+      .chip:hover { border-color: var(--accent); color: var(--text); }
+
+      /* ---------- composer ---------- */
+      .composer-wrap { border-top: 1px solid var(--line); background: var(--panel); padding: 14px 20px 12px; }
+      form {
+        max-width: 840px; margin: 0 auto;
+        display: flex; gap: 10px; align-items: flex-end;
+        background: var(--bg);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 7px 7px 7px 14px;
+        transition: border-color 0.15s;
+      }
+      form:focus-within { border-color: var(--accent); }
+      textarea {
+        flex: 1;
+        resize: none;
+        border: none;
+        background: transparent;
+        padding: 8px 0;
+        min-height: 38px;
+        max-height: 200px;
+        line-height: 1.55;
+      }
+      textarea:focus { outline: none; }
+      textarea::placeholder { color: var(--faint); }
+      .send { width: 38px; height: 38px; padding: 0; border-radius: 10px; }
+      .footnote {
+        max-width: 840px; margin: 8px auto 0;
+        display: flex; gap: 10px; align-items: center;
+        color: var(--faint); font-size: 12px;
+      }
+      .footnote .spacer { flex: 1; }
+      .warn { color: #fbbf24; }
+
+      .to-bottom {
+        position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+        border-radius: 999px; padding: 6px 14px; font-size: 12.5px;
+        background: var(--card); box-shadow: var(--shadow);
+      }
+      .to-bottom[hidden] { display: none; }
+
+      .toast {
+        position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
+        background: var(--card); border: 1px solid var(--line); box-shadow: var(--shadow);
+        border-radius: 10px; padding: 9px 16px; font-size: 13px;
+        opacity: 0; pointer-events: none; transition: opacity 0.2s;
+        z-index: 40;
+      }
+      .toast.show { opacity: 1; }
+
+      .banner {
+        padding: 8px 18px;
+        background: #fbbf2416;
+        border-bottom: 1px solid #fbbf2440;
+        color: #fbbf24;
+        font-size: 12.5px;
+      }
+      .banner[hidden] { display: none; }
+      .loading { color: var(--faint); text-align: center; padding: 40px 0; font-size: 13.5px; }
+
+      .backdrop { display: none; }
+
+      @media (max-width: 800px) {
+        .sidebar {
+          position: fixed; z-index: 30; top: 0; bottom: 0; left: 0;
+          transform: translateX(-100%);
+          transition: transform 0.2s ease;
+          box-shadow: var(--shadow);
+        }
+        body.nav-open .sidebar { transform: none; }
+        body.nav-open .backdrop {
+          display: block; position: fixed; inset: 0; z-index: 20; background: #0008;
+        }
+        #menu-toggle { display: inline-flex; }
+        .topbar .sub { display: none; }
+        .turn.user .bubble { max-width: 92%; }
+        #transcript { padding: 16px 14px 8px; }
+        .composer-wrap { padding: 10px 14px; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <aside class="sidebar" id="sidebar">
+        <div class="sidebar-head">
+          <div class="brand">
+            <span class="dot"></span>
+            <strong>Masterly Internal Chatbot</strong>
+          </div>
+          <button class="btn primary" id="new-chat" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            New chat
+          </button>
+          <div class="search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" />
+            </svg>
+            <input id="search" type="search" placeholder="Search chats" autocomplete="off" />
+          </div>
+        </div>
+        <div class="conversations" id="conversations"></div>
+        <div class="sidebar-foot">
+          <span id="conv-count">0 chats</span>
+          <span class="spacer"></span>
+          <button class="btn icon" id="theme-toggle" type="button" title="Toggle theme" aria-label="Toggle theme">
+            <svg id="theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
+            </svg>
+          </button>
+          <button class="btn icon danger" id="clear-all" type="button" title="Delete all chats" aria-label="Delete all chats">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13" />
+            </svg>
+          </button>
+        </div>
+      </aside>
+      <div class="backdrop" id="backdrop"></div>
+
+      <div class="main">
+        <div class="topbar">
+          <button class="btn icon" id="menu-toggle" type="button" aria-label="Show chats">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <path d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
+          <h1 id="chat-title">New chat</h1>
+          <span class="sub" id="chat-sub">read-only copy of the production database</span>
+          <span class="spacer"></span>
+          <button class="btn" id="rename" type="button" title="Rename this chat">Rename</button>
+        </div>
+
+        <div class="banner" id="banner" hidden></div>
+
+        <div class="scroller" id="scroller">
+          <div id="transcript"></div>
+          <button class="btn to-bottom" id="to-bottom" type="button" hidden>Jump to latest ↓</button>
+        </div>
+
+        <div class="composer-wrap">
+          <form id="composer">
+            <textarea
+              id="input"
+              rows="1"
+              placeholder="Ask about learners, courses, orders, revenue…"
+              autofocus
+            ></textarea>
+            <button class="btn primary send" id="send" type="submit" title="Send" aria-label="Send">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M5 12h13M12 5l7 7-7 7" />
+              </svg>
+            </button>
+          </form>
+          <p class="footnote">
+            <span>Enter sends · Shift+Enter for a new line</span>
+            <span class="spacer"></span>
+            <span id="turn-note">data may be up to an hour old</span>
+          </p>
+        </div>
+      </div>
+    </div>
+    <div class="toast" id="toast"></div>
+
+    <script>
+      // ---------------------------------------------------------------- state
+      // Conversations live in Postgres; this page is a thin client over
+      // /api/conversations and /api/chat. The only thing kept in the browser is
+      // the theme choice — plus the open transcript if storage is unavailable.
+      const THEME_KEY = 'masterly-chat-theme';
+      const MAX_TURNS = 40; // must match MAX_TURNS in server.js
+      const WARN_TURNS = 32;
+
+      const el = (id) => document.getElementById(id);
+      const transcript = el('transcript');
+      const scroller = el('scroller');
+      const list = el('conversations');
+      const form = el('composer');
+      const input = el('input');
+      const sendButton = el('send');
+      const searchBox = el('search');
+      const titleEl = el('chat-title');
+      const turnNote = el('turn-note');
+      const toBottom = el('to-bottom');
+      const toast = el('toast');
+      const banner = el('banner');
+
+      let conversations = []; // sidebar rows: {id, title, createdAt, updatedAt, questionCount}
+      let activeId = null; // null until the first message creates a conversation
+      let messages = []; // the open transcript
+      let historyOk = true; // false once the server reports storage is unavailable
+      let busy = false;
+      let filter = '';
+
+      class ApiError extends Error {
+        constructor(message, status, payload) {
+          super(message);
+          this.status = status;
+          this.payload = payload || {};
+        }
+      }
+
+      async function api(path, options) {
+        const response = await fetch(path, {
+          credentials: 'same-origin',
+          headers: { 'content-type': 'application/json' },
+          ...options,
+        });
+        let data = null;
+        try {
+          data = await response.json();
+        } catch {
+          /* empty or non-JSON body */
+        }
+        if (data?.historyUnavailable === true) setHistoryOk(false);
+        else if (data?.historyUnavailable === false && !historyOk) setHistoryOk(true);
+        if (!response.ok) {
+          throw new ApiError(data?.error || `Server returned ${response.status}.`, response.status, data);
+        }
+        return data || {};
+      }
+
+      function setHistoryOk(ok) {
+        historyOk = ok;
+        banner.hidden = ok;
+        if (!ok) {
+          banner.replaceChildren(
+            text(
+              'Chat history storage is unavailable, so this conversation will not be saved. It usually means the database is still starting — reload in a moment.',
+            ),
+          );
+        }
+      }
+
+      function activeConversation() {
+        return conversations.find((c) => c.id === activeId) || null;
+      }
+
+      function currentTitle() {
+        return activeConversation()?.title || 'New chat';
+      }
+
+      // ------------------------------------------------------------- rendering
+      // Model output is never parsed as HTML: every leaf is a text node. The
+      // renderer only recognises a small markdown subset and builds the DOM
+      // itself, so nothing the model emits can become markup.
+      function text(value) {
+        return document.createTextNode(value);
+      }
+
+      function inlineInto(parent, line) {
+        // `code` and **bold** only — underscores are left alone because column
+        // names like lesson_watches would otherwise turn into italics.
+        const pattern = /`([^`]+)`|\*\*([^*]+)\*\*/g;
+        let last = 0;
+        let match;
+        while ((match = pattern.exec(line)) !== null) {
+          if (match.index > last) parent.appendChild(text(line.slice(last, match.index)));
+          if (match[1] !== undefined) {
+            const code = document.createElement('code');
+            code.appendChild(text(match[1]));
+            parent.appendChild(code);
+          } else {
+            const strong = document.createElement('strong');
+            strong.appendChild(text(match[2]));
+            parent.appendChild(strong);
+          }
+          last = pattern.lastIndex;
+        }
+        if (last < line.length) parent.appendChild(text(line.slice(last)));
+      }
+
+      const NUMERIC = /^[-+]?[\d,.]+%?$/;
+
+      function tableFrom(rows) {
+        const cells = rows.map((row) =>
+          row.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim()),
+        );
+        const isDivider = (cols) => cols.length && cols.every((c) => /^:?-{2,}:?$/.test(c));
+        const header = isDivider(cells[1] || []) ? cells[0] : null;
+        const bodyRows = cells.slice(header ? 2 : 0).filter((cols) => !isDivider(cols));
+
+        const wrap = document.createElement('div');
+        wrap.className = 'table-wrap';
+        const table = document.createElement('table');
+        const numeric = [];
+
+        if (header) {
+          const head = document.createElement('thead');
+          const tr = document.createElement('tr');
+          for (const cell of header) {
+            const th = document.createElement('th');
+            inlineInto(th, cell);
+            tr.appendChild(th);
+          }
+          head.appendChild(tr);
+          table.appendChild(head);
+          // Right-align a column when every body value in it looks like a number.
+          header.forEach((_, i) => {
+            const values = bodyRows.map((cols) => (cols[i] || '').trim()).filter(Boolean);
+            numeric[i] = values.length > 0 && values.every((v) => NUMERIC.test(v));
+          });
+        }
+
+        const body = document.createElement('tbody');
+        for (const cols of bodyRows) {
+          const tr = document.createElement('tr');
+          cols.forEach((cell, i) => {
+            const td = document.createElement('td');
+            if (numeric[i]) td.className = 'num';
+            inlineInto(td, cell);
+            tr.appendChild(td);
+          });
+          body.appendChild(tr);
+        }
+        table.appendChild(body);
+        if (header) {
+          table.querySelectorAll('th').forEach((th, i) => {
+            if (numeric[i]) th.className = 'num';
+          });
+        }
+        wrap.appendChild(table);
+        return wrap;
+      }
+
+      function codeBlockFrom(lines) {
+        const wrap = document.createElement('div');
+        wrap.className = 'code-block';
+        const pre = document.createElement('pre');
+        pre.appendChild(text(lines.join('\n')));
+        const copy = document.createElement('button');
+        copy.type = 'button';
+        copy.className = 'btn copy';
+        copy.appendChild(text('Copy'));
+        copy.addEventListener('click', () => copyText(lines.join('\n')));
+        wrap.append(pre, copy);
+        return wrap;
+      }
+
+      function renderMarkdown(container, source) {
+        const lines = String(source).split('\n');
+        let i = 0;
+
+        const paragraph = (buffer) => {
+          const p = document.createElement('p');
+          inlineInto(p, buffer.join('\n'));
+          container.appendChild(p);
+        };
+
+        while (i < lines.length) {
+          const line = lines[i];
+          const trimmed = line.trim();
+
+          if (trimmed === '') { i++; continue; }
+
+          if (trimmed.startsWith('```')) {
+            const block = [];
+            i++;
+            while (i < lines.length && !lines[i].trim().startsWith('```')) block.push(lines[i++]);
+            i++; // closing fence
+            container.appendChild(codeBlockFrom(block));
+            continue;
+          }
+
+          if (trimmed.startsWith('|')) {
+            const rows = [];
+            while (i < lines.length && lines[i].trim().startsWith('|')) rows.push(lines[i++]);
+            container.appendChild(tableFrom(rows));
+            continue;
+          }
+
+          if (/^(-{3,}|\*{3,}|_{3,})$/.test(trimmed)) {
+            container.appendChild(document.createElement('hr'));
+            i++;
+            continue;
+          }
+
+          const heading = trimmed.match(/^#{1,6}\s+(.*)$/);
+          if (heading) {
+            const h = document.createElement('h3');
+            inlineInto(h, heading[1]);
+            container.appendChild(h);
+            i++;
+            continue;
+          }
+
+          const bullet = /^[-*+]\s+(.*)$/;
+          const numbered = /^\d+[.)]\s+(.*)$/;
+          if (bullet.test(trimmed) || numbered.test(trimmed)) {
+            const ordered = !bullet.test(trimmed);
+            const listEl = document.createElement(ordered ? 'ol' : 'ul');
+            while (i < lines.length) {
+              const item = lines[i].trim().match(ordered ? numbered : bullet);
+              if (!item) break;
+              const li = document.createElement('li');
+              inlineInto(li, item[1]);
+              listEl.appendChild(li);
+              i++;
+            }
+            container.appendChild(listEl);
+            continue;
+          }
+
+          if (trimmed.startsWith('>')) {
+            const quote = document.createElement('blockquote');
+            const buffer = [];
+            while (i < lines.length && lines[i].trim().startsWith('>')) {
+              buffer.push(lines[i].trim().replace(/^>\s?/, ''));
+              i++;
+            }
+            inlineInto(quote, buffer.join('\n'));
+            container.appendChild(quote);
+            continue;
+          }
+
+          const buffer = [];
+          while (i < lines.length) {
+            const next = lines[i];
+            const t = next.trim();
+            if (t === '' || t.startsWith('```') || t.startsWith('|') || t.startsWith('>')) break;
+            if (/^#{1,6}\s+/.test(t) || bullet.test(t) || numbered.test(t)) break;
+            buffer.push(next);
+            i++;
+          }
+          if (buffer.length) paragraph(buffer);
+        }
+      }
+
+      function turn(role, content, variant) {
+        const wrap = document.createElement('div');
+        wrap.className = `turn ${variant === 'error' ? 'error' : role}`;
+
+        const label = document.createElement('div');
+        label.className = 'role';
+        const badge = document.createElement('span');
+        badge.className = 'badge';
+        badge.appendChild(text(role === 'user' ? 'You' : 'M'));
+        label.append(badge, text(role === 'user' ? 'You' : 'Masterly'));
+        wrap.appendChild(label);
+
+        const bubble = document.createElement('div');
+        bubble.className = 'bubble';
+        if (role === 'assistant' && !variant) renderMarkdown(bubble, content);
+        else bubble.appendChild(text(content));
+        wrap.appendChild(bubble);
+
+        if (role === 'assistant' && !variant) {
+          const actions = document.createElement('div');
+          actions.className = 'actions';
+          const copy = document.createElement('button');
+          copy.type = 'button';
+          copy.className = 'btn';
+          copy.appendChild(text('Copy'));
+          copy.addEventListener('click', () => copyText(content));
+          actions.appendChild(copy);
+          wrap.appendChild(actions);
+        }
+
+        transcript.appendChild(wrap);
+        return wrap;
+      }
+
+      function emptyState() {
+        const wrap = document.createElement('div');
+        wrap.className = 'empty';
+        const h = document.createElement('h2');
+        h.appendChild(text('Ask the Masterly database anything'));
+        const p = document.createElement('p');
+        p.appendChild(text('Questions are answered by running read-only SQL against a recent copy.'));
+        wrap.append(h, p);
+
+        const chips = document.createElement('div');
+        chips.className = 'chips';
+        for (const example of [
+          'How many users do we have, broken down by type?',
+          'Which courses earned the most revenue from paid orders?',
+          'How many learners enrolled but never watched a lesson?',
+          'What did we sell last month, by payment gateway?',
+        ]) {
+          const chip = document.createElement('button');
+          chip.type = 'button';
+          chip.className = 'chip';
+          chip.appendChild(text(example));
+          chip.addEventListener('click', () => {
+            input.value = example;
+            grow();
+            input.focus();
+          });
+          chips.appendChild(chip);
+        }
+        wrap.appendChild(chips);
+        transcript.appendChild(wrap);
+      }
+
+      function renderTranscript() {
+        transcript.replaceChildren();
+        if (!messages.length) emptyState();
+        else for (const message of messages) turn(message.role, message.content);
+
+        const title = currentTitle();
+        titleEl.replaceChildren(text(title));
+        document.title = messages.length ? `${title} · Masterly Internal Chatbot` : 'Masterly Internal Chatbot';
+        updateTurnNote();
+        requestAnimationFrame(() => scrollToBottom('auto'));
+      }
+
+      // -------------------------------------------------------------- sidebar
+      function relativeTime(stamp) {
+        const diff = Date.now() - stamp;
+        const minutes = Math.round(diff / 60000);
+        if (minutes < 1) return 'just now';
+        if (minutes < 60) return `${minutes}m ago`;
+        const hours = Math.round(minutes / 60);
+        if (hours < 24) return `${hours}h ago`;
+        const days = Math.round(hours / 24);
+        if (days < 7) return `${days}d ago`;
+        return new Date(stamp).toLocaleDateString();
+      }
+
+      function groupOf(stamp) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const start = today.getTime();
+        if (stamp >= start) return 'Today';
+        if (stamp >= start - 86400000) return 'Yesterday';
+        if (stamp >= start - 7 * 86400000) return 'Previous 7 days';
+        if (stamp >= start - 30 * 86400000) return 'Previous 30 days';
+        return 'Older';
+      }
+
+      function iconButton(labelText, pathData, className) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = `btn icon${className ? ' ' + className : ''}`;
+        button.title = labelText;
+        button.setAttribute('aria-label', labelText);
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('fill', 'none');
+        svg.setAttribute('stroke', 'currentColor');
+        svg.setAttribute('stroke-width', '2');
+        svg.setAttribute('stroke-linecap', 'round');
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', pathData);
+        svg.appendChild(path);
+        button.appendChild(svg);
+        return button;
+      }
+
+      function renderSidebar() {
+        list.replaceChildren();
+        const count = conversations.length;
+        el('conv-count').replaceChildren(text(`${count} chat${count === 1 ? '' : 's'}`));
+
+        if (!count) {
+          const empty = document.createElement('div');
+          empty.className = 'sidebar-empty';
+          empty.appendChild(
+            text(
+              filter.trim()
+                ? 'No chats match that search.'
+                : historyOk
+                  ? 'No chats yet.'
+                  : 'History unavailable.',
+            ),
+          );
+          list.appendChild(empty);
+          return;
+        }
+
+        // The server already sorts by updated_at; group headings only.
+        let currentGroup = null;
+        for (const conv of conversations) {
+          const group = groupOf(conv.updatedAt);
+          if (group !== currentGroup) {
+            currentGroup = group;
+            const label = document.createElement('div');
+            label.className = 'group-label';
+            label.appendChild(text(group));
+            list.appendChild(label);
+          }
+
+          const row = document.createElement('div');
+          row.className = `conv${conv.id === activeId ? ' active' : ''}`;
+          row.tabIndex = 0;
+
+          const body = document.createElement('div');
+          body.className = 'conv-body';
+          const title = document.createElement('div');
+          title.className = 'conv-title';
+          title.appendChild(text(conv.title));
+          const meta = document.createElement('div');
+          meta.className = 'conv-meta';
+          const questions = conv.questionCount ?? 0;
+          meta.appendChild(
+            text(`${relativeTime(conv.updatedAt)} · ${questions} question${questions === 1 ? '' : 's'}`),
+          );
+          body.append(title, meta);
+
+          const actions = document.createElement('div');
+          actions.className = 'conv-actions';
+          const rename = iconButton('Rename', 'M4 20h4l10-10-4-4L4 16v4zM14 6l4 4');
+          rename.addEventListener('click', (event) => {
+            event.stopPropagation();
+            renameConversation(conv);
+          });
+          const remove = iconButton('Delete', 'M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13', 'danger');
+          remove.addEventListener('click', (event) => {
+            event.stopPropagation();
+            deleteConversation(conv);
+          });
+          actions.append(rename, remove);
+
+          row.append(body, actions);
+          row.addEventListener('click', () => selectConversation(conv.id));
+          row.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              selectConversation(conv.id);
+            }
+          });
+          list.appendChild(row);
+        }
+      }
+
+      function render() {
+        renderSidebar();
+        renderTranscript();
+      }
+
+      // ------------------------------------------------------------ API calls
+      async function refreshList() {
+        if (!historyOk) {
+          conversations = [];
+          renderSidebar();
+          return;
+        }
+        try {
+          const query = filter.trim() ? `?q=${encodeURIComponent(filter.trim())}` : '';
+          const data = await api(`/api/conversations${query}`);
+          conversations = data.conversations || [];
+        } catch (err) {
+          conversations = [];
+          if (err.status !== 503) notify(err.message);
+        }
+        renderSidebar();
+      }
+
+      async function openConversation(id) {
+        transcript.replaceChildren();
+        const loading = document.createElement('div');
+        loading.className = 'loading';
+        loading.appendChild(text('Loading conversation…'));
+        transcript.appendChild(loading);
+        try {
+          const data = await api(`/api/conversations/${id}`);
+          activeId = data.conversation.id;
+          messages = data.conversation.messages;
+        } catch (err) {
+          activeId = null;
+          messages = [];
+          notify(err.message);
+          await refreshList();
+        }
+        render();
+      }
+
+      function selectConversation(id) {
+        if (busy) {
+          notify('Wait for the current answer to finish.');
+          return;
+        }
+        closeNav();
+        openConversation(id);
+        input.focus();
+      }
+
+      async function renameConversation(conv) {
+        const next = window.prompt('Rename chat', conv.title);
+        if (next === null) return;
+        const title = next.trim();
+        if (!title || title === conv.title) return;
+        try {
+          await api(`/api/conversations/${conv.id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ title }),
+          });
+          conv.title = title;
+          renderSidebar();
+          if (conv.id === activeId) {
+            titleEl.replaceChildren(text(title));
+            document.title = `${title} · Masterly Internal Chatbot`;
+          }
+        } catch (err) {
+          notify(err.message);
+        }
+      }
+
+      async function deleteConversation(conv) {
+        if (!window.confirm(`Delete "${conv.title}"?`)) return;
+        try {
+          await api(`/api/conversations/${conv.id}`, { method: 'DELETE' });
+        } catch (err) {
+          notify(err.message);
+          return;
+        }
+        if (conv.id === activeId) {
+          activeId = null;
+          messages = [];
+        }
+        await refreshList();
+        renderTranscript();
+      }
+
+      // ---------------------------------------------------------------- chat
+      function updateTurnNote() {
+        const count = messages.length;
+        turnNote.className = '';
+        if (count >= MAX_TURNS) {
+          turnNote.className = 'warn';
+          turnNote.replaceChildren(text('This chat is full — start a new chat.'));
+        } else if (count >= WARN_TURNS) {
+          turnNote.className = 'warn';
+          turnNote.replaceChildren(
+            text(`${MAX_TURNS - count} messages left in this chat`),
+          );
+        } else {
+          turnNote.replaceChildren(text('data may be up to an hour old'));
+        }
+      }
+
+      function atBottom() {
+        return scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80;
+      }
+
+      function scrollToBottom(behavior) {
+        scroller.scrollTo({ top: scroller.scrollHeight, behavior: behavior || 'smooth' });
+      }
+
+      function setBusy(value) {
+        busy = value;
+        sendButton.disabled = value;
+        input.disabled = value;
+      }
+
+      function pendingTurn() {
+        const wrap = document.createElement('div');
+        wrap.className = 'turn assistant';
+        const bubble = document.createElement('div');
+        bubble.className = 'bubble pending';
+        const dots = document.createElement('span');
+        dots.className = 'dots';
+        for (let n = 0; n < 3; n++) dots.appendChild(document.createElement('i'));
+        const label = document.createElement('span');
+        label.appendChild(text('Querying the database…'));
+        const elapsed = document.createElement('span');
+        elapsed.className = 'elapsed';
+        bubble.append(dots, label, elapsed);
+        wrap.appendChild(bubble);
+        transcript.appendChild(wrap);
+        scrollToBottom();
+
+        const started = Date.now();
+        const timer = setInterval(() => {
+          elapsed.replaceChildren(text(`${Math.round((Date.now() - started) / 1000)}s`));
+        }, 1000);
+        return {
+          remove() {
+            clearInterval(timer);
+            wrap.remove();
+          },
+        };
+      }
+
+      function errorTurn(message, onRetry) {
+        const wrap = turn('assistant', message, 'error');
+        if (onRetry) {
+          const actions = document.createElement('div');
+          actions.className = 'actions';
+          actions.style.opacity = '1';
+          const retry = document.createElement('button');
+          retry.type = 'button';
+          retry.className = 'btn';
+          retry.appendChild(text('Retry'));
+          retry.addEventListener('click', () => {
+            wrap.remove();
+            onRetry();
+          });
+          actions.appendChild(retry);
+          wrap.appendChild(actions);
+        }
+        scrollToBottom();
+      }
+
+      // `question` is null when retrying: the server already stored the question
+      // and re-runs the model against the saved conversation.
+      async function send(question) {
+        const pending = pendingTurn();
+        setBusy(true);
+        try {
+          const body = question === null ? { retry: true } : { message: question };
+          if (activeId) body.conversationId = activeId;
+          // Without storage the server has no transcript of its own, so send ours.
+          if (!historyOk) body.messages = messages.map(({ role, content }) => ({ role, content }));
+
+          const data = await api('/api/chat', { method: 'POST', body: JSON.stringify(body) });
+          pending.remove();
+
+          if (data.conversationId) activeId = data.conversationId;
+
+          if (data.error) {
+            // A refusal: answered, but with nothing to store.
+            errorTurn(data.error, () => send(null));
+            return;
+          }
+
+          messages.push({ role: 'assistant', content: data.reply, at: Date.now() });
+          turn('assistant', data.reply);
+          updateTurnNote();
+          if (atBottom()) scrollToBottom();
+          refreshList();
+        } catch (err) {
+          pending.remove();
+          if (err.payload?.conversationId) activeId = err.payload.conversationId;
+          const retryable = !(err instanceof ApiError) || err.status >= 500 || err.status === 429;
+          const message =
+            err instanceof ApiError ? err.message : `Could not reach the server: ${err.message}`;
+          // Retry only makes sense once the question is stored server-side.
+          errorTurn(message, retryable && activeId ? () => send(null) : null);
+          refreshList();
+        } finally {
+          setBusy(false);
+          input.focus();
+        }
+      }
+
+      function ask(question) {
+        if (messages.length >= MAX_TURNS) {
+          notify('This chat is full — start a new chat.');
+          return;
+        }
+        if (!messages.length) transcript.replaceChildren();
+
+        messages.push({ role: 'user', content: question, at: Date.now() });
+        turn('user', question);
+        updateTurnNote();
+        scrollToBottom();
+        send(question);
+      }
+
+      // -------------------------------------------------------------- helpers
+      let toastTimer = null;
+      function notify(message) {
+        toast.replaceChildren(text(message));
+        toast.classList.add('show');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => toast.classList.remove('show'), 2200);
+      }
+
+      async function copyText(value) {
+        try {
+          await navigator.clipboard.writeText(value);
+          notify('Copied to clipboard');
+        } catch {
+          notify('Copy failed — select the text manually.');
+        }
+      }
+
+      function grow() {
+        input.style.height = 'auto';
+        input.style.height = `${Math.min(input.scrollHeight, 200)}px`;
+      }
+
+      function closeNav() {
+        document.body.classList.remove('nav-open');
+      }
+
+      function applyTheme(theme) {
+        document.documentElement.dataset.theme = theme;
+        try {
+          localStorage.setItem(THEME_KEY, theme);
+        } catch {
+          /* fine — the theme just won't stick */
+        }
+      }
+
+      // ---------------------------------------------------------------- events
+      form.addEventListener('submit', (event) => {
+        event.preventDefault();
+        const question = input.value.trim();
+        if (!question || busy) return;
+        input.value = '';
+        grow();
+        ask(question);
+      });
+
+      input.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' && !event.shiftKey) {
+          event.preventDefault();
+          form.requestSubmit();
+        }
+      });
+      input.addEventListener('input', grow);
+
+      el('new-chat').addEventListener('click', () => {
+        if (busy) {
+          notify('Wait for the current answer to finish.');
+          return;
+        }
+        // The conversation row is only created server-side by the first message,
+        // so "New chat" is purely local — no empty rows in the sidebar.
+        activeId = null;
+        messages = [];
+        closeNav();
+        render();
+        input.focus();
+      });
+
+      el('rename').addEventListener('click', () => {
+        const conv = activeConversation();
+        if (!conv) {
+          notify('Send a message first.');
+          return;
+        }
+        renameConversation(conv);
+      });
+
+      el('clear-all').addEventListener('click', async () => {
+        if (!conversations.length) return;
+        if (!window.confirm(`Delete all ${conversations.length} chats? This cannot be undone.`)) return;
+        try {
+          await api('/api/conversations', { method: 'DELETE' });
+        } catch (err) {
+          notify(err.message);
+          return;
+        }
+        activeId = null;
+        messages = [];
+        await refreshList();
+        renderTranscript();
+      });
+
+      let searchTimer = null;
+      searchBox.addEventListener('input', () => {
+        filter = searchBox.value;
+        clearTimeout(searchTimer);
+        // Search runs in Postgres across message bodies, so debounce it.
+        searchTimer = setTimeout(refreshList, 200);
+      });
+
+      el('menu-toggle').addEventListener('click', () => document.body.classList.toggle('nav-open'));
+      el('backdrop').addEventListener('click', closeNav);
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') closeNav();
+      });
+
+      el('theme-toggle').addEventListener('click', () => {
+        applyTheme(document.documentElement.dataset.theme === 'light' ? 'dark' : 'light');
+      });
+
+      scroller.addEventListener('scroll', () => {
+        toBottom.hidden = atBottom();
+      });
+      toBottom.addEventListener('click', () => scrollToBottom());
+
+      // Pick up chats started in another tab when this one is focused again.
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden && !busy) refreshList();
+      });
+
+      try {
+        const saved = localStorage.getItem(THEME_KEY);
+        applyTheme(saved === 'light' ? 'light' : 'dark');
+      } catch {
+        applyTheme('dark');
+      }
+
+      // Boot: list the saved chats and reopen the most recent one.
+      (async () => {
+        render();
+        await refreshList();
+        if (conversations.length) await openConversation(conversations[0].id);
+        input.focus();
+      })();
+    </script>
+  </body>
+</html>

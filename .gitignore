@@ -2,3 +2,6 @@
 node_modules/
 schema.generated.md
 *.dump
+*.sql
+.idea/
+.DS_Store

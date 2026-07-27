@@ -1,0 +1,15 @@
+{
+  "name": "masterly-internal-chatbot",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Internal chat interface over a read-only copy of the Masterly LMS database",
+  "scripts": {
+    "start": "node server.js",
+    "schema-doc": "node scripts/generate-schema-doc.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.115.0",
+    "pg": "^8.22.0"
+  }
+}
