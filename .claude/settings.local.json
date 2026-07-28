@@ -39,7 +39,8 @@
       "Bash(git -c safe.directory=/app ls-files)",
       "Bash(bash -n /app/sync/sync.sh)",
       "Bash(git -c safe.directory=/app check-ignore -v .env.sync.prod .env.app.prod)",
-      "Bash(git -c safe.directory=/app check-ignore .env.example)"
+      "Bash(git -c safe.directory=/app check-ignore .env.example)",
+      "Skill(claude-api)"
     ]
   }
 }

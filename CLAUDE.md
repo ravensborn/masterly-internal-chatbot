@@ -28,7 +28,7 @@ docker compose logs -f sync   # first sync must complete before the chatbot has 
 
 - Plain JavaScript (ESM, `"type": "module"`), plain `node:http` — no framework, no TypeScript, no build step.
 - Runtime dependencies are **only** `@anthropic-ai/sdk` and `pg`. Do not add dependencies without approval.
-- Anthropic calls go through the official SDK (tool runner with a single `run_sql` tool). Default model `claude-opus-5` via `ANTHROPIC_MODEL`.
+- Anthropic calls go through the official SDK (tool runner with a single `run_sql` tool). Default model `claude-sonnet-5` via `ANTHROPIC_MODEL`. Server-side refusal fallbacks are Opus 5 / Fable 5 only — `server.js` sends that option only when the configured model supports it, so switching models stays a one-variable change.
 - Security boundary is the Postgres `chatbot` role (SELECT-only, `default_transaction_read_only = on`, 15s statement timeout) — never "fix" access problems by connecting the app as the superuser.
 - One internal Postgres, three roles, env vars prefixed by role: `ADMIN_DB_*` (superuser, sync only), `SNAPSHOT_DB_*` (read-only, the app's `run_sql`), `HISTORY_DB_*` (read/write, transcripts). Separate passwords — the privilege split is the boundary. `SOURCE_DB_*` is the live LMS database.
 - Chat history is the app's **only** writable data. It lives in a separate `chatbot_app` database via a separate pool (`history.js`) — never in `masterly_snapshot`, which the sync job drops and recreates every cycle. Keep the two connections apart.

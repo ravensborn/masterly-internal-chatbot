@@ -14,7 +14,7 @@ services:
     environment:
       - PORT=8080
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-opus-5}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-5}
       - CHAT_USERNAME=${CHAT_USERNAME}
       - CHAT_PASSWORD=${CHAT_PASSWORD}
       - SESSION_SECRET=${SESSION_SECRET:-}

@@ -27,7 +27,13 @@ const SCHEMA_NOTES = path.join(ROOT, 'schema-notes.md');
 const SCHEMA_GENERATED = path.join(ROOT, 'schema.generated.md');
 
 const PORT = Number(process.env.PORT || 8080);
-const MODEL = process.env.ANTHROPIC_MODEL || 'claude-opus-5';
+const MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5';
+// Server-side refusal fallbacks exist only on the models with elevated safety
+// classifiers. Sending the parameter to any other model is a 400 on every
+// request, so the option has to follow the configured model.
+const SUPPORTS_FALLBACKS = new Set(['claude-opus-5', 'claude-fable-5', 'claude-mythos-5']).has(
+  MODEL,
+);
 const MAX_BODY_BYTES = 1_000_000;
 const MAX_TURNS = 40;
 const MAX_MESSAGE_CHARS = 8000;
@@ -613,8 +619,9 @@ async function handleChat(req, res, owner) {
       tools: [runSql],
       messages,
       max_iterations: 10,
-      betas: ['server-side-fallback-2026-07-01'],
-      fallbacks: 'default',
+      ...(SUPPORTS_FALLBACKS
+        ? { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' }
+        : {}),
     });
 
     // Check why generation stopped before touching content.
