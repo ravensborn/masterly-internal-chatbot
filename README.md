@@ -11,19 +11,6 @@ docker compose logs -f sync   # wait for the first "sync complete"
 # open http://localhost:8090 and sign in with CHAT_USERNAME / CHAT_PASSWORD
 ```
 
-### No live source database?
-
-Set `SOURCE_DUMP_FILE` in `.env` to a `pg_dump` backup on disk (custom-format
-archive or plain SQL — the extension doesn't matter) and the sync job restores
-that instead of dumping `SOURCE_DB_*`:
-
-```bash
-SOURCE_DUMP_FILE=./masterly-backup.sql
-```
-
-It is re-restored only when the file's mtime changes. Never commit the dump —
-`*.sql` and `*.dump` are gitignored.
-
 ### Chat history
 
 Conversations are saved in a `chatbot_app` database on the same internal

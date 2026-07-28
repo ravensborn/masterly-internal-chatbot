@@ -26,9 +26,6 @@ services:
       - SOURCE_DB_DATABASE=${SOURCE_DB_DATABASE:-masterly}
       - SOURCE_DB_USERNAME=${SOURCE_DB_USERNAME:-laravel}
       - SOURCE_DB_PASSWORD=${SOURCE_DB_PASSWORD:-}
-      # When set, the source DB above is ignored and this dump (mounted below
-      # from ./${SOURCE_DUMP_FILE}) is restored instead. See .env.example.
-      - SOURCE_DUMP_FILE=${SOURCE_DUMP_FILE:+/seed/dump}
       # Superuser of the internal Postgres — only this service ever uses it.
       - ADMIN_DB_HOST=db
       - ADMIN_DB_PORT=5432
@@ -45,8 +42,6 @@ services:
       - SYNC_INTERVAL_SECONDS=${SYNC_INTERVAL_SECONDS:-3600}
     volumes:
       - ./sync:/sync:ro
-      # Inert placeholder unless SOURCE_DUMP_FILE names a dump on the host.
-      - ${SOURCE_DUMP_FILE:-/dev/null}:/seed/dump:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:

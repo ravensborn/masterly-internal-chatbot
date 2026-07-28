@@ -11,15 +11,11 @@
 #
 # A failure at any step leaves the previous snapshot intact; the cycle simply
 # retries after SYNC_INTERVAL_SECONDS.
-#
-# SEED MODE: when SOURCE_DUMP_FILE points at a dump on disk (mounted into this
-# container), step 1 is skipped and that file is restored instead — for when
-# there is no reachable live source, only a backup. The file is re-restored
-# only when its mtime changes, so the loop is idle after the first cycle.
-# Infra-table data excluded above is truncated post-restore instead.
 
 set -u
 
+: "${SOURCE_DB_HOST:?}" "${SOURCE_DB_PORT:?}" "${SOURCE_DB_DATABASE:?}"
+: "${SOURCE_DB_USERNAME:?}" "${SOURCE_DB_PASSWORD:?}"
 : "${ADMIN_DB_HOST:?}" "${ADMIN_DB_PORT:?}"
 : "${ADMIN_DB_USERNAME:?}" "${ADMIN_DB_PASSWORD:?}" "${SNAPSHOT_DB_PASSWORD:?}"
 
@@ -27,12 +23,6 @@ set -u
 #   ADMIN_*     superuser, used only here
 #   SNAPSHOT_*  SELECT-only, what the app's model-generated SQL runs as
 #   HISTORY_*   read/write, chat transcripts only
-
-SOURCE_DUMP_FILE="${SOURCE_DUMP_FILE:-}"
-if [ -z "$SOURCE_DUMP_FILE" ]; then
-    : "${SOURCE_DB_HOST:?}" "${SOURCE_DB_PORT:?}" "${SOURCE_DB_DATABASE:?}"
-    : "${SOURCE_DB_USERNAME:?}" "${SOURCE_DB_PASSWORD:?}"
-fi
 
 INTERVAL="${SYNC_INTERVAL_SECONDS:-3600}"
 SNAPSHOT_DB="masterly_snapshot"
@@ -71,37 +61,18 @@ admin_psql() {
         -h "$ADMIN_DB_HOST" -p "$ADMIN_DB_PORT" -U "$ADMIN_DB_USERNAME" "$@"
 }
 
-# Restores $1 into the staging DB. Accepts both pg_dump formats: a custom/
-# directory archive (magic "PGDMP", needs pg_restore) or plain SQL text (psql).
-# A backup handed over as "*.sql" is often really a custom archive, so sniff the
-# file rather than trusting its extension.
+# dump_source always writes a custom-format archive (-Fc), so pg_restore is
+# always the right reader.
 restore_into_staging() {
-    local file="$1"
-    if [ "$(head -c 5 "$file")" = "PGDMP" ]; then
-        PGPASSWORD="$ADMIN_DB_PASSWORD" pg_restore \
-            -h "$ADMIN_DB_HOST" -p "$ADMIN_DB_PORT" -U "$ADMIN_DB_USERNAME" \
-            -d "$STAGING_DB" --no-owner --no-acl --exit-on-error "$file"
-    else
-        admin_psql -d "$STAGING_DB" -f "$file" >/dev/null
-    fi
-}
-
-# Seed mode only: the mounted dump carries every table's data, so drop the
-# infra/sensitive rows here that a live pg_dump would have excluded.
-truncate_excluded_data() {
-    local t
-    for t in "${EXCLUDED_DATA_TABLES[@]}"; do
-        admin_psql -d "$STAGING_DB" -c \
-            "DO \$\$ BEGIN IF to_regclass('public.${t}') IS NOT NULL THEN TRUNCATE TABLE public.${t}; END IF; END \$\$;" || return 1
-    done
+    PGPASSWORD="$ADMIN_DB_PASSWORD" pg_restore \
+        -h "$ADMIN_DB_HOST" -p "$ADMIN_DB_PORT" -U "$ADMIN_DB_USERNAME" \
+        -d "$STAGING_DB" --no-owner --no-acl --exit-on-error "$DUMP_FILE"
 }
 
 restore_and_swap() {
-    local file="${SOURCE_DUMP_FILE:-$DUMP_FILE}"
     admin_psql -d postgres -c "DROP DATABASE IF EXISTS ${STAGING_DB} WITH (FORCE);" &&
     admin_psql -d postgres -c "CREATE DATABASE ${STAGING_DB};" &&
-    restore_into_staging "$file" &&
-    { [ -z "$SOURCE_DUMP_FILE" ] || truncate_excluded_data; } &&
+    restore_into_staging &&
     admin_psql -d postgres -c "DROP DATABASE IF EXISTS ${SNAPSHOT_DB} WITH (FORCE);" &&
     admin_psql -d postgres -c "ALTER DATABASE ${STAGING_DB} RENAME TO ${SNAPSHOT_DB};"
 }
@@ -163,34 +134,18 @@ apply_snapshot() {
     fi
 }
 
-seeded_mtime=""
-
 while true; do
     # Cheap and idempotent; retried every cycle so a database that was not ready
     # (or a password that changed) heals without a restart.
     bootstrap_history_db || log "ERROR: could not bootstrap ${HISTORY_DB}; chat history will be unavailable" >&2
 
-    if [ -n "$SOURCE_DUMP_FILE" ]; then
-        if [ ! -r "$SOURCE_DUMP_FILE" ]; then
-            log "ERROR: SOURCE_DUMP_FILE ${SOURCE_DUMP_FILE} is missing or unreadable" >&2
-        else
-            mtime="$(stat -c %Y "$SOURCE_DUMP_FILE")"
-            if [ "$mtime" = "$seeded_mtime" ]; then
-                log "dump ${SOURCE_DUMP_FILE} unchanged — keeping current snapshot"
-            else
-                log "seeding from dump file ${SOURCE_DUMP_FILE}"
-                # Only remember the mtime on success, so a failed seed retries.
-                apply_snapshot && seeded_mtime="$mtime"
-            fi
-        fi
+    log "starting sync from ${SOURCE_DB_HOST}:${SOURCE_DB_PORT}/${SOURCE_DB_DATABASE}"
+    if dump_source; then
+        apply_snapshot
     else
-        log "starting sync from ${SOURCE_DB_HOST}:${SOURCE_DB_PORT}/${SOURCE_DB_DATABASE}"
-        if dump_source; then
-            apply_snapshot
-        else
-            log "ERROR: pg_dump from source failed; retrying in ${INTERVAL}s" >&2
-        fi
-        rm -f "$DUMP_FILE"
+        log "ERROR: pg_dump from source failed; retrying in ${INTERVAL}s" >&2
     fi
+    rm -f "$DUMP_FILE"
+
     sleep "$INTERVAL"
 done

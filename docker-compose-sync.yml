@@ -1,0 +1,50 @@
+# Sync only — copies the live LMS database into the chatbot's Postgres.
+# Runs independently of docker-compose-prod.yml (the app); the two never talk to
+# each other, they only both talk to the Postgres instance named in .env.
+#
+#   docker compose -f docker-compose-sync.yml up -d
+#   docker compose -f docker-compose-sync.yml logs -f
+#
+# Distinct project name: both files sit in the same directory, so without this
+# Compose would treat the app's container as an orphan of this project.
+name: masterly-chatbot-sync
+
+services:
+  sync:
+    container_name: masterly-chatbot-sync
+    # Not a database server — this image is here for the pg_dump / pg_restore /
+    # psql binaries. Keep the major version >= the source Postgres, or pg_dump
+    # refuses to dump from it.
+    image: postgres:18
+    entrypoint: ["bash", "/sync/sync.sh"]
+    environment:
+      # The live LMS database to copy FROM (read access only).
+      - SOURCE_DB_HOST=${SOURCE_DB_HOST}
+      - SOURCE_DB_PORT=${SOURCE_DB_PORT:-5432}
+      - SOURCE_DB_DATABASE=${SOURCE_DB_DATABASE:-masterly}
+      - SOURCE_DB_USERNAME=${SOURCE_DB_USERNAME:-laravel}
+      - SOURCE_DB_PASSWORD=${SOURCE_DB_PASSWORD:-}
+      # Superuser of the chatbot's Postgres — only this service ever uses it.
+      # It drops/recreates databases and creates the two roles below.
+      - ADMIN_DB_HOST=${ADMIN_DB_HOST:?set ADMIN_DB_HOST in .env}
+      - ADMIN_DB_PORT=${ADMIN_DB_PORT:-5432}
+      - ADMIN_DB_USERNAME=${ADMIN_DB_USERNAME:-chatbot_admin}
+      - ADMIN_DB_PASSWORD=${ADMIN_DB_PASSWORD:?set ADMIN_DB_PASSWORD in .env}
+      # Read-only role over the snapshot (created here, used by the app).
+      - SNAPSHOT_DB_USERNAME=${SNAPSHOT_DB_USERNAME:-chatbot}
+      - SNAPSHOT_DB_PASSWORD=${SNAPSHOT_DB_PASSWORD:?set SNAPSHOT_DB_PASSWORD in .env}
+      # Read/write role + database for saved chat history (created here, used by
+      # the app). Separate from the snapshot, which is dropped every cycle.
+      - HISTORY_DB_DATABASE=${HISTORY_DB_DATABASE:-chatbot_app}
+      - HISTORY_DB_USERNAME=${HISTORY_DB_USERNAME:-chatbot_app}
+      - HISTORY_DB_PASSWORD=${HISTORY_DB_PASSWORD:-}
+      - SYNC_INTERVAL_SECONDS=${SYNC_INTERVAL_SECONDS:-3600}
+    volumes:
+      - ./sync:/sync:ro
+    networks:
+      - dokploy-network
+    restart: unless-stopped
+
+networks:
+  dokploy-network:
+    external: true

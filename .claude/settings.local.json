@@ -30,7 +30,16 @@
       "Bash(command -v docker)",
       "Bash(node -e \"console.log\\(process.env.SNAPSHOT_DB_DATABASE, process.env.SNAPSHOT_DB_USERNAME, process.env.HISTORY_DB_DATABASE, process.env.HISTORY_DB_USERNAME\\)\")",
       "Bash(node *)",
-      "Bash(grep -n \"toast\\\\|notify\\\\|backdrop\\\\|</body>\\\\|</div>\\\\s*$\" /app/public/index.html)"
+      "Bash(grep -n \"toast\\\\|notify\\\\|backdrop\\\\|</body>\\\\|</div>\\\\s*$\" /app/public/index.html)",
+      "Bash(python3 -c ' *)",
+      "Bash(git -c safe.directory=/app status --short)",
+      "Bash(git -c safe.directory=/app diff --stat -- docker-compose.yml)",
+      "Bash(git -c safe.directory=/app log --oneline -3)",
+      "Bash(git -c safe.directory=/app status --short --untracked-files=all -- server.js history.js public/ docker-compose.yml)",
+      "Bash(git -c safe.directory=/app ls-files)",
+      "Bash(bash -n /app/sync/sync.sh)",
+      "Bash(git -c safe.directory=/app check-ignore -v .env.sync.prod .env.app.prod)",
+      "Bash(git -c safe.directory=/app check-ignore .env.example)"
     ]
   }
 }

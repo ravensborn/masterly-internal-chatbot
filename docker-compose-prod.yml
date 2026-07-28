@@ -1,0 +1,48 @@
+# App only — the chat server. The snapshot and chat-history databases it reads
+# are created by the sync job; see docker-compose-sync.yml.
+#
+#   docker compose -f docker-compose-prod.yml up -d --build
+#
+# Distinct project name: both files sit in the same directory, so without this
+# Compose would treat the sync container as an orphan of this project.
+name: masterly-chatbot-app
+
+services:
+  app:
+    container_name: masterly-chatbot-app
+    build: .
+    environment:
+      - PORT=8080
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-opus-5}
+      - CHAT_USERNAME=${CHAT_USERNAME}
+      - CHAT_PASSWORD=${CHAT_PASSWORD}
+      - SESSION_SECRET=${SESSION_SECRET:-}
+      # Snapshot: read-only, this is what the model's run_sql tool runs as.
+      # The database name is fixed — sync.sh hardcodes it on the other side.
+      - SNAPSHOT_DB_HOST=${SNAPSHOT_DB_HOST:?set SNAPSHOT_DB_HOST in .env}
+      - SNAPSHOT_DB_PORT=${SNAPSHOT_DB_PORT:-5432}
+      - SNAPSHOT_DB_DATABASE=masterly_snapshot
+      - SNAPSHOT_DB_USERNAME=${SNAPSHOT_DB_USERNAME:-chatbot}
+      - SNAPSHOT_DB_PASSWORD=${SNAPSHOT_DB_PASSWORD}
+      # Chat history: same Postgres instance, its own database and read/write role.
+      - HISTORY_DB_HOST=${HISTORY_DB_HOST:?set HISTORY_DB_HOST in .env}
+      - HISTORY_DB_PORT=${HISTORY_DB_PORT:-5432}
+      - HISTORY_DB_DATABASE=${HISTORY_DB_DATABASE:-chatbot_app}
+      - HISTORY_DB_USERNAME=${HISTORY_DB_USERNAME:-chatbot_app}
+      - HISTORY_DB_PASSWORD=${HISTORY_DB_PASSWORD:-}
+    volumes:
+      - ./:/app
+    # No published port: Dokploy's Traefik reaches the app over dokploy-network.
+    # Attach the domain in Dokploy's Domains tab pointing at service `app`,
+    # port 8080.
+    networks:
+      - dokploy-network
+    # Deliberately no healthcheck: /api/health returns 503 until the first sync
+    # finishes, which would make Traefik stop routing to the very page that
+    # explains why.
+    restart: unless-stopped
+
+networks:
+  dokploy-network:
+    external: true
