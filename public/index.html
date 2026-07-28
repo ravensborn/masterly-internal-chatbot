@@ -326,6 +326,31 @@
       }
       .to-bottom[hidden] { display: none; }
 
+      /* ---------- confirm dialog ---------- */
+      .modal {
+        width: min(400px, calc(100vw - 32px));
+        padding: 0;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: var(--card);
+        color: var(--text);
+        box-shadow: var(--shadow);
+      }
+      .modal::backdrop { background: #0008; backdrop-filter: blur(2px); }
+      .modal form { padding: 20px; display: flex; flex-direction: column; gap: 8px; }
+      .modal h2 { margin: 0; font-size: 15.5px; font-weight: 650; }
+      .modal p {
+        margin: 0; font-size: 13.5px; color: var(--muted);
+        overflow-wrap: anywhere;
+      }
+      .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+      /* Scoped to the dialog: `.btn.danger` alone would also repaint the
+         sidebar's danger icon buttons, which are muted until hover. */
+      .modal-actions .btn.danger { border-color: var(--danger); color: var(--danger); }
+      .modal-actions .btn.danger:hover:not(:disabled) {
+        background: var(--danger-soft); border-color: var(--danger);
+      }
+
       .toast {
         position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
         background: var(--card); border: 1px solid var(--line); box-shadow: var(--shadow);
@@ -516,6 +541,18 @@
         </div>
       </div>
     </div>
+    <dialog class="modal" id="confirm">
+      <!-- method="dialog" makes each button's value the dialog's returnValue,
+           so Esc / backdrop / Cancel all resolve the same promise as "no". -->
+      <form method="dialog">
+        <h2 id="confirm-title"></h2>
+        <p id="confirm-body"></p>
+        <div class="modal-actions">
+          <button class="btn" id="confirm-cancel" type="submit" value="cancel" autofocus>Cancel</button>
+          <button class="btn danger" id="confirm-ok" type="submit" value="ok">Delete</button>
+        </div>
+      </form>
+    </dialog>
     <div class="toast" id="toast"></div>
 
     <script>
@@ -1038,7 +1075,11 @@
       }
 
       async function deleteConversation(conv) {
-        if (!window.confirm(`Delete "${conv.title}"?`)) return;
+        const yes = await confirmAction({
+          title: 'Delete this chat?',
+          body: `"${conv.title}" and all of its messages will be removed. This cannot be undone.`,
+        });
+        if (!yes) return;
         try {
           await api(`/api/conversations/${conv.id}`, { method: 'DELETE' });
         } catch (err) {
@@ -1196,6 +1237,28 @@
         toast.classList.add('show');
         clearTimeout(toastTimer);
         toastTimer = setTimeout(() => toast.classList.remove('show'), 2200);
+      }
+
+      // Drop-in replacement for window.confirm: resolves true only when the
+      // confirm button is the one that closed the dialog.
+      const confirmDialog = el('confirm');
+      confirmDialog.addEventListener('click', (event) => {
+        // <dialog> counts the backdrop as a click on the element itself.
+        if (event.target === confirmDialog) confirmDialog.close('cancel');
+      });
+
+      function confirmAction({ title, body, confirmLabel = 'Delete' }) {
+        el('confirm-title').replaceChildren(text(title));
+        el('confirm-body').replaceChildren(text(body));
+        el('confirm-ok').replaceChildren(text(confirmLabel));
+        return new Promise((resolve) => {
+          confirmDialog.addEventListener(
+            'close',
+            () => resolve(confirmDialog.returnValue === 'ok'),
+            { once: true },
+          );
+          confirmDialog.showModal();
+        });
       }
 
       async function copyText(value) {
@@ -1373,7 +1436,12 @@
 
       el('clear-all').addEventListener('click', async () => {
         if (!conversations.length) return;
-        if (!window.confirm(`Delete all ${conversations.length} chats? This cannot be undone.`)) return;
+        const yes = await confirmAction({
+          title: 'Delete all chats?',
+          body: `All ${conversations.length} saved chats will be removed. This cannot be undone.`,
+          confirmLabel: 'Delete all',
+        });
+        if (!yes) return;
         try {
           await api('/api/conversations', { method: 'DELETE' });
         } catch (err) {

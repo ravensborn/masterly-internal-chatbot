@@ -29,7 +29,8 @@
       "Bash(echo \"clean: $?\")",
       "Bash(command -v docker)",
       "Bash(node -e \"console.log\\(process.env.SNAPSHOT_DB_DATABASE, process.env.SNAPSHOT_DB_USERNAME, process.env.HISTORY_DB_DATABASE, process.env.HISTORY_DB_USERNAME\\)\")",
-      "Bash(node *)"
+      "Bash(node *)",
+      "Bash(grep -n \"toast\\\\|notify\\\\|backdrop\\\\|</body>\\\\|</div>\\\\s*$\" /app/public/index.html)"
     ]
   }
 }
