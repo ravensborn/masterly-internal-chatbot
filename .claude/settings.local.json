@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(rm -f .env.bak.*)",
+      "Bash(python3 -)",
+      "Bash(node -e ' *)",
+      "Bash(node --check server.js)",
+      "Bash(node --check history.js)",
+      "Bash(sed -e 's/=.\\\\{1,\\\\}$/=<redacted>/' .env)",
+      "Bash(PORT=8099 CHAT_USERNAME=tester CHAT_PASSWORD='s3cret pw' SNAPSHOT_DB_HOST=127.0.0.1 SNAPSHOT_DB_PORT=5432 SNAPSHOT_DB_DATABASE=masterly_snapshot SNAPSHOT_DB_USERNAME=chatbot SNAPSHOT_DB_PASSWORD=x node server.js)",
+      "Bash(curl -s -o /dev/null -w \"status=%{http_code} location=%{redirect_url}\\\\n\" http://127.0.0.1:8099/)",
+      "Bash(curl -s -w \"\\\\nstatus=%{http_code}\\\\n\" http://127.0.0.1:8099/api/health)",
+      "Bash(curl -s -o /dev/null -w \"status=%{http_code} type=%{content_type} bytes=%{size_download}\\\\n\" http://127.0.0.1:8099/login)",
+      "Bash(curl -s -w \"\\\\nstatus=%{http_code}\\\\n\" -X POST http://127.0.0.1:8099/api/login -H 'content-type: application/json' -d '{\"username\":\"tester\",\"password\":\"nope\"}')",
+      "Bash(curl -s -D- -o /dev/null -c cookies.txt -X POST http://127.0.0.1:8099/api/login -H 'content-type: application/json' -d '{\"username\":\"tester\",\"password\":\"s3cret pw\"}')",
+      "Bash(curl -s -b cookies.txt -o /dev/null -w \"status=%{http_code} bytes=%{size_download}\\\\n\" http://127.0.0.1:8099/)",
+      "Bash(curl -s -b cookies.txt -o /dev/null -w \"status=%{http_code} location=%{redirect_url}\\\\n\" http://127.0.0.1:8099/login)",
+      "Bash(curl -s -b cookies.txt -w \"\\\\nstatus=%{http_code}\\\\n\" http://127.0.0.1:8099/api/health)",
+      "Bash(curl -s -o /dev/null -w \"status=%{http_code}\\\\n\" -H \"Cookie: masterly_session=99999999999999.deadbeef\" http://127.0.0.1:8099/api/health)",
+      "Bash(node -e \"console.log\\(require\\('crypto'\\).createHmac\\('sha256','masterly-chat.v1.s3cret pw'\\).update\\('1'\\).digest\\('base64url'\\)\\)\")",
+      "Bash(docker compose *)",
+      "Bash(node health-test.mjs)",
+      "Bash(pkill -f \"node server.js\")",
+      "Bash(rm -f cookies.txt server3.log)",
+      "Bash(PORT=8099 CHAT_USERNAME=tester CHAT_PASSWORD='s3cret pw' ANTHROPIC_API_KEY=sk-test SNAPSHOT_DB_HOST=127.0.0.1 SNAPSHOT_DB_DATABASE=masterly_snapshot SNAPSHOT_DB_USERNAME=chatbot SNAPSHOT_DB_PASSWORD=x node /app/server.js)",
+      "Bash(curl -s -c cookies.txt -o /dev/null -w \"login    status=%{http_code}\\\\n\" -X POST http://127.0.0.1:8099/api/login -H 'content-type: application/json' -d '{\"username\":\"tester\",\"password\":\"s3cret pw\"}')",
+      "Bash(curl -s -b cookies.txt -o /dev/null -w \"chat     status=%{http_code}\\\\n\" http://127.0.0.1:8099/)",
+      "Bash(curl -s -b cookies.txt -w \"health   \" http://127.0.0.1:8099/api/health -o - -w \"\\\\nhealth   status=%{http_code}\\\\n\")",
+      "Bash(echo \"clean: $?\")",
+      "Bash(command -v docker)",
+      "Bash(node -e \"console.log\\(process.env.SNAPSHOT_DB_DATABASE, process.env.SNAPSHOT_DB_USERNAME, process.env.HISTORY_DB_DATABASE, process.env.HISTORY_DB_USERNAME\\)\")",
+      "Bash(node *)"
+    ]
+  }
+}

@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="color-scheme" content="dark light" />
+    <title>Sign in · Masterly Internal Chatbot</title>
+    <style>
+      /* Same tokens as index.html — the two pages should not look like two apps. */
+      :root {
+        --bg: #0b1220;
+        --panel: #0f172a;
+        --line: #26324a;
+        --text: #e6ecf5;
+        --muted: #94a3b8;
+        --faint: #64748b;
+        --accent: #6366f1;
+        --accent-text: #c7d2fe;
+        --danger: #f87171;
+        --danger-soft: #f8717119;
+        --shadow: 0 10px 30px #00000059;
+        --radius: 12px;
+      }
+      :root[data-theme='light'] {
+        --bg: #f6f7fb;
+        --panel: #ffffff;
+        --line: #e2e6ef;
+        --text: #16202f;
+        --muted: #5b6779;
+        --faint: #8a94a4;
+        --accent: #4f46e5;
+        --accent-text: #4338ca;
+        --danger: #dc2626;
+        --danger-soft: #dc26260f;
+        --shadow: 0 10px 30px #0f172a14;
+      }
+
+      * { box-sizing: border-box; }
+      html, body { height: 100%; }
+      body {
+        margin: 0;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        background: var(--bg);
+        color: var(--text);
+        font: 15px/1.65 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      button, input { font: inherit; color: inherit; }
+
+      .card {
+        width: 100%;
+        max-width: 380px;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        padding: 26px 24px 22px;
+      }
+      .brand { display: flex; align-items: center; gap: 9px; margin-bottom: 4px; }
+      .brand .dot {
+        width: 9px; height: 9px; border-radius: 50%;
+        background: #34d399; box-shadow: 0 0 0 3px #34d39926;
+      }
+      .brand strong { font-size: 14px; font-weight: 650; letter-spacing: 0.2px; }
+      .lead { margin: 0 0 20px; color: var(--faint); font-size: 12.5px; }
+
+      label { display: block; font-size: 12.5px; color: var(--muted); margin: 0 0 6px; }
+      .field { margin-bottom: 14px; }
+      input[type='text'], input[type='password'] {
+        width: 100%;
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid var(--line);
+        background: var(--bg);
+        outline: none;
+      }
+      input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px #6366f126; }
+
+      button.submit {
+        width: 100%;
+        margin-top: 4px;
+        padding: 10px 13px;
+        border-radius: 10px;
+        border: 1px solid transparent;
+        background: var(--accent);
+        color: #fff;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button.submit:disabled { opacity: 0.6; cursor: default; }
+
+      .error {
+        margin: 0 0 14px;
+        padding: 8px 11px;
+        border-radius: 10px;
+        background: var(--danger-soft);
+        border: 1px solid #f8717140;
+        color: var(--danger);
+        font-size: 12.5px;
+      }
+      .error[hidden] { display: none; }
+      .foot { margin: 16px 0 0; text-align: center; color: var(--faint); font-size: 11.5px; }
+    </style>
+  </head>
+  <body>
+    <form class="card" id="form" autocomplete="on">
+      <div class="brand">
+        <span class="dot"></span>
+        <strong>Masterly Internal Chatbot</strong>
+      </div>
+      <p class="lead">Internal staff only. Sign in to query the database copy.</p>
+
+      <p class="error" id="error" role="alert" hidden></p>
+
+      <div class="field">
+        <label for="username">Username</label>
+        <input id="username" name="username" type="text" autocomplete="username" autofocus required />
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required />
+      </div>
+
+      <button class="submit" id="submit" type="submit">Sign in</button>
+      <p class="foot">Read-only access to a copy of the production database.</p>
+    </form>
+
+    <script>
+      // Match whatever theme the chat page last used, so signing in is not a flash
+      // of the wrong colour scheme.
+      try {
+        const saved = localStorage.getItem('masterly-chat-theme');
+        document.documentElement.dataset.theme = saved === 'light' ? 'light' : 'dark';
+      } catch {
+        document.documentElement.dataset.theme = 'dark';
+      }
+
+      const form = document.getElementById('form');
+      const errorBox = document.getElementById('error');
+      const submit = document.getElementById('submit');
+
+      function fail(message) {
+        errorBox.textContent = message;
+        errorBox.hidden = false;
+        submit.disabled = false;
+        submit.textContent = 'Sign in';
+        document.getElementById('password').select();
+      }
+
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        errorBox.hidden = true;
+        submit.disabled = true;
+        submit.textContent = 'Signing in…';
+
+        let response;
+        try {
+          response = await fetch('/api/login', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              username: document.getElementById('username').value,
+              password: document.getElementById('password').value,
+            }),
+          });
+        } catch {
+          fail('Could not reach the server. Try again.');
+          return;
+        }
+
+        if (response.ok) {
+          // Replace, not assign: the login page should not sit in the back stack.
+          window.location.replace('/');
+          return;
+        }
+
+        let data = null;
+        try {
+          data = await response.json();
+        } catch {
+          /* non-JSON error body */
+        }
+        fail(data?.error || `Sign in failed (${response.status}).`);
+      });
+    </script>
+  </body>
+</html>

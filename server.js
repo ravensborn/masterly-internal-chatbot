@@ -2,16 +2,16 @@
 //
 // Serves a basic-auth chat page and answers questions by letting the model run
 // read-only SQL against the local snapshot through a single `run_sql` tool.
-// The security boundary is the Postgres `chatbot` role (SELECT-only,
-// default_transaction_read_only, 15s statement timeout) — there is deliberately
-// no SQL parsing or allow-listing in here.
+// The security boundary is the Postgres role this connects as — SNAPSHOT_DB_*,
+// SELECT-only, default_transaction_read_only, 15s statement timeout — so there
+// is deliberately no SQL parsing or allow-listing in here.
 //
-// Two database connections, on purpose: this one is read-only against
-// `masterly_snapshot`; chat transcripts are read/written through history.js
-// against a separate `chatbot_app` database that the sync job never touches.
+// Two database connections, on purpose: this one (SNAPSHOT_DB_*) is read-only
+// against `masterly_snapshot`; chat transcripts are read/written through
+// history.js as HISTORY_DB_*, against a database the sync job never touches.
 import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
-import { timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Anthropic from '@anthropic-ai/sdk';
@@ -22,6 +22,7 @@ import * as history from './history.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const INDEX_HTML = path.join(ROOT, 'public', 'index.html');
+const LOGIN_HTML = path.join(ROOT, 'public', 'login.html');
 const SCHEMA_NOTES = path.join(ROOT, 'schema-notes.md');
 const SCHEMA_GENERATED = path.join(ROOT, 'schema.generated.md');
 
@@ -35,11 +36,11 @@ const MAX_RESULT_BYTES = 50_000;
 const SCHEMA_DOC_MAX_AGE_MS = 15 * 60 * 1000;
 
 const pool = new pg.Pool({
-  host: process.env.DB_HOST,
-  port: Number(process.env.DB_PORT || 5432),
-  database: process.env.DB_DATABASE,
-  user: process.env.DB_USERNAME,
-  password: process.env.DB_PASSWORD,
+  host: process.env.SNAPSHOT_DB_HOST,
+  port: Number(process.env.SNAPSHOT_DB_PORT || 5432),
+  database: process.env.SNAPSHOT_DB_DATABASE,
+  user: process.env.SNAPSHOT_DB_USERNAME,
+  password: process.env.SNAPSHOT_DB_PASSWORD,
   max: 3,
   options: '-c search_path=public',
   statement_timeout: 15000,
@@ -186,6 +187,80 @@ const runSql = betaTool({
   },
 });
 
+// --- health ------------------------------------------------------------------
+
+// Confirms the snapshot connection works AND that it is still the locked-down
+// one: a `chatbot` role that lost default_transaction_read_only would answer
+// queries fine while silently giving the model write access, so the page shows
+// that as a failure rather than a healthy tick.
+async function checkSnapshot() {
+  try {
+    const { rows } = await pool.query(
+      `SELECT current_database() AS "database",
+              current_user      AS "role",
+              current_setting('transaction_read_only') AS read_only,
+              (SELECT count(*)::int FROM information_schema.tables
+                 WHERE table_schema = 'public' AND table_type = 'BASE TABLE') AS tables`,
+    );
+    const row = rows[0];
+    const readOnly = row.read_only === 'on';
+    return {
+      ok: readOnly && row.tables > 0,
+      database: row.database,
+      role: row.role,
+      readOnly,
+      tables: row.tables,
+      detail: !readOnly
+        ? 'Connected, but the session is NOT read-only — check the role grants.'
+        : row.tables === 0
+          ? 'Connected, but the snapshot is empty — the first sync has not finished.'
+          : undefined,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      database: process.env.SNAPSHOT_DB_DATABASE,
+      role: process.env.SNAPSHOT_DB_USERNAME,
+      detail:
+        err.code === '3D000'
+          ? 'Database does not exist yet — waiting for the first sync to finish.'
+          : err.message,
+    };
+  }
+}
+
+async function handleHealth(res) {
+  const [snapshot, chatHistory] = await Promise.all([checkSnapshot(), history.checkHealth()]);
+  // A missing history password is a deliberate configuration, not an outage —
+  // unconfigured history does not make the stack unhealthy.
+  const ok = snapshot.ok && (chatHistory.ok || !chatHistory.configured);
+  sendJson(res, ok ? 200 : 503, {
+    ok,
+    checkedAt: new Date().toISOString(),
+    checks: [
+      {
+        key: 'snapshot',
+        label: 'Snapshot database',
+        note: 'read-only copy the answers are queried from',
+        ...snapshot,
+      },
+      {
+        key: 'history',
+        label: 'Chat history database',
+        note: 'saved conversations',
+        ...chatHistory,
+      },
+      {
+        key: 'anthropic',
+        label: 'Anthropic API',
+        note: `model ${MODEL}`,
+        ok: HAS_API_CREDENTIALS,
+        detail: HAS_API_CREDENTIALS ? undefined : 'ANTHROPIC_API_KEY is not set.',
+      },
+    ],
+  });
+}
+
 // --- http helpers ------------------------------------------------------------
 
 function sendJson(res, status, body) {
@@ -211,32 +286,160 @@ function equals(a, b) {
   return timingSafeEqual(paddedLeft, paddedRight) && left.length === right.length;
 }
 
+// --- session auth ------------------------------------------------------------
+//
+// One account, taken from CHAT_USERNAME / CHAT_PASSWORD, exchanged at /login for
+// a signed cookie. Nothing is stored server-side: with a single user there is no
+// session table to look up, so the cookie carries its own expiry and an HMAC
+// over it. Restarting the app keeps people logged in; changing CHAT_PASSWORD
+// signs everyone out, which is what you want from a password change.
+
+const SESSION_COOKIE = 'masterly_session';
+const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+const LOGIN_PATH = '/login';
+
+const CHAT_USERNAME = process.env.CHAT_USERNAME || '';
+const CHAT_PASSWORD = process.env.CHAT_PASSWORD || '';
+const AUTH_CONFIGURED = Boolean(CHAT_USERNAME && CHAT_PASSWORD);
+
+// A random fallback would invalidate every cookie on restart, so derive the key
+// from the password unless SESSION_SECRET pins it explicitly.
+const SESSION_KEY =
+  process.env.SESSION_SECRET ||
+  (AUTH_CONFIGURED ? `masterly-chat.v1.${CHAT_PASSWORD}` : randomBytes(32).toString('hex'));
+
+function sign(value) {
+  return createHmac('sha256', SESSION_KEY).update(value).digest('base64url');
+}
+
+function cookiesOf(req) {
+  const jar = {};
+  for (const part of (req.headers.cookie || '').split(';')) {
+    const eq = part.indexOf('=');
+    if (eq === -1) continue;
+    jar[part.slice(0, eq).trim()] = part.slice(eq + 1).trim();
+  }
+  return jar;
+}
+
+// True when the request reached us over TLS, directly or via a proxy — the
+// Secure flag has to stay off for plain-http internal use or the cookie is
+// silently dropped.
+function isSecure(req) {
+  return (
+    Boolean(req.socket.encrypted) ||
+    String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim() === 'https'
+  );
+}
+
+function setSessionCookie(res, req, token, maxAgeSeconds) {
+  const parts = [
+    `${SESSION_COOKIE}=${token}`,
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Strict',
+    `Max-Age=${maxAgeSeconds}`,
+  ];
+  if (isSecure(req)) parts.push('Secure');
+  res.setHeader('set-cookie', parts.join('; '));
+}
+
+function startSession(req, res) {
+  const expires = String(Date.now() + SESSION_TTL_MS);
+  setSessionCookie(res, req, `${expires}.${sign(expires)}`, Math.floor(SESSION_TTL_MS / 1000));
+}
+
+function endSession(req, res) {
+  setSessionCookie(res, req, '', 0);
+}
+
 // Returns the authenticated username (conversations are stored per user, ready
-// for per-user credentials later) or null once a response has been sent.
-function authorize(req, res) {
-  const user = process.env.CHAT_USERNAME || '';
-  const password = process.env.CHAT_PASSWORD || '';
-  if (!user || !password) {
-    sendJson(res, 503, { error: 'chat auth not configured' });
-    return null;
+// for per-user credentials later) or null when the cookie is missing, forged or
+// expired. The signature covers only the expiry because there is exactly one
+// account — add the username to the signed payload before adding a second.
+function sessionUser(req) {
+  const token = cookiesOf(req)[SESSION_COOKIE];
+  if (!token || !AUTH_CONFIGURED) return null;
+  const dot = token.lastIndexOf('.');
+  if (dot === -1) return null;
+  const expires = token.slice(0, dot);
+  if (!equals(token.slice(dot + 1), sign(expires))) return null;
+  if (!(Number(expires) > Date.now())) return null;
+  return CHAT_USERNAME;
+}
+
+// Small brute-force brake. One user and an internal audience, so an in-memory
+// counter per address is enough — it resets on restart, which is acceptable.
+const MAX_ATTEMPTS = 10;
+const LOCKOUT_MS = 5 * 60 * 1000;
+const attempts = new Map();
+
+function attemptKey(req) {
+  return String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || 'unknown';
+}
+
+function lockedOut(key) {
+  const record = attempts.get(key);
+  if (!record) return false;
+  if (Date.now() - record.at > LOCKOUT_MS) {
+    attempts.delete(key);
+    return false;
+  }
+  return record.count >= MAX_ATTEMPTS;
+}
+
+function noteFailure(key) {
+  const record = attempts.get(key);
+  if (!record || Date.now() - record.at > LOCKOUT_MS) attempts.set(key, { count: 1, at: Date.now() });
+  else attempts.set(key, { count: record.count + 1, at: Date.now() });
+}
+
+async function handleLoginRequest(req, res) {
+  if (!AUTH_CONFIGURED) {
+    sendJson(res, 503, { error: 'Login is not configured — set CHAT_USERNAME and CHAT_PASSWORD.' });
+    return;
   }
 
-  const header = req.headers.authorization || '';
-  if (header.startsWith('Basic ')) {
-    const decoded = Buffer.from(header.slice(6), 'base64').toString('utf8');
-    const separator = decoded.indexOf(':');
-    if (separator !== -1) {
-      const ok =
-        equals(decoded.slice(0, separator), user) && equals(decoded.slice(separator + 1), password);
-      if (ok) return user;
-    }
+  const key = attemptKey(req);
+  if (lockedOut(key)) {
+    sendJson(res, 429, { error: 'Too many attempts. Wait a few minutes and try again.' });
+    return;
   }
 
-  res.writeHead(401, {
-    'www-authenticate': 'Basic realm="Masterly Internal Chatbot", charset="UTF-8"',
-    'content-type': 'text/plain; charset=utf-8',
-  });
-  res.end('Authentication required.\n');
+  let body;
+  try {
+    body = JSON.parse((await readBody(req)) || '{}');
+  } catch {
+    sendJson(res, 400, { error: 'Invalid request.' });
+    return;
+  }
+
+  const ok =
+    equals(String(body.username ?? ''), CHAT_USERNAME) &&
+    equals(String(body.password ?? ''), CHAT_PASSWORD);
+
+  if (!ok) {
+    noteFailure(key);
+    // Same message either way: which half was wrong is not the client's business.
+    sendJson(res, 401, { error: 'Incorrect username or password.' });
+    return;
+  }
+
+  attempts.delete(key);
+  startSession(req, res);
+  sendJson(res, 200, { ok: true, username: CHAT_USERNAME });
+}
+
+function requireSession(req, res, url) {
+  const owner = sessionUser(req);
+  if (owner) return owner;
+
+  if (url.pathname.startsWith('/api/')) {
+    sendJson(res, 401, { error: 'Your session has expired — sign in again.', unauthenticated: true });
+  } else {
+    res.writeHead(302, { location: LOGIN_PATH, 'cache-control': 'no-store' });
+    res.end();
+  }
   return null;
 }
 
@@ -479,22 +682,6 @@ async function handleConversations(req, res, owner, url) {
     return;
   }
 
-  if (method === 'PATCH' && id) {
-    const body = await parseBody(req, res);
-    if (body === undefined) return;
-    if (typeof body.title !== 'string' || !body.title.trim()) {
-      sendJson(res, 400, { error: 'Send a non-empty `title`.' });
-      return;
-    }
-    const updated = await history.renameConversation(owner, id, body.title);
-    if (!updated) {
-      sendJson(res, 404, { error: 'That conversation no longer exists.' });
-      return;
-    }
-    sendJson(res, 200, { conversation: updated });
-    return;
-  }
-
   if (method === 'DELETE' && id) {
     const removed = await history.deleteConversation(owner, id);
     sendJson(res, removed ? 200 : 404, removed ? { ok: true } : { error: 'That conversation no longer exists.' });
@@ -509,9 +696,9 @@ async function handleConversations(req, res, owner, url) {
   sendJson(res, 405, { error: 'Method not allowed.' });
 }
 
-async function handleIndex(res) {
+async function sendPage(res, file, missingMessage) {
   try {
-    const html = await readFile(INDEX_HTML);
+    const html = await readFile(file);
     res.writeHead(200, {
       'content-type': 'text/html; charset=utf-8',
       'content-length': html.length,
@@ -520,18 +707,41 @@ async function handleIndex(res) {
     res.end(html);
   } catch {
     res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' });
-    res.end('Chat page is missing (public/index.html).\n');
+    res.end(`${missingMessage}\n`);
   }
 }
 
 const server = createServer(async (req, res) => {
   try {
-    const owner = authorize(req, res);
+    const url = new URL(req.url, 'http://localhost');
+
+    // The only routes reachable without a session.
+    if (req.method === 'GET' && url.pathname === LOGIN_PATH) {
+      if (sessionUser(req)) {
+        res.writeHead(302, { location: '/', 'cache-control': 'no-store' });
+        res.end();
+        return;
+      }
+      await sendPage(res, LOGIN_HTML, 'Login page is missing (public/login.html).');
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/api/login') {
+      await handleLoginRequest(req, res);
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/api/logout') {
+      endSession(req, res);
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    const owner = requireSession(req, res, url);
     if (!owner) return;
 
-    const url = new URL(req.url, 'http://localhost');
     if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) {
-      await handleIndex(res);
+      await sendPage(res, INDEX_HTML, 'Chat page is missing (public/index.html).');
+    } else if (req.method === 'GET' && url.pathname === '/api/health') {
+      await handleHealth(res);
     } else if (req.method === 'POST' && url.pathname === '/api/chat') {
       await handleChat(req, res, owner);
     } else if (url.pathname === '/api/conversations' || url.pathname.startsWith('/api/conversations/')) {
@@ -566,7 +776,10 @@ if (!HAS_API_CREDENTIALS) {
   console.warn('[chat] ANTHROPIC_API_KEY is not set — /api/chat will return 503 until it is.');
 }
 if (!history.historyConfigured) {
-  console.warn('[history] APP_DB_PASSWORD is not set — chats will not be saved.');
+  console.warn('[history] HISTORY_DB_PASSWORD is not set — chats will not be saved.');
+}
+if (!AUTH_CONFIGURED) {
+  console.warn('[auth] CHAT_USERNAME / CHAT_PASSWORD are not set — nobody can sign in.');
 }
 
 server.listen(PORT, () => console.log(`[http] listening on :${PORT} (model ${MODEL})`));

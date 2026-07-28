@@ -136,11 +136,11 @@ export async function generateSchemaDoc(pool) {
 // Standalone entrypoint: `node scripts/generate-schema-doc.js`
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const pool = new pg.Pool({
-    host: process.env.DB_HOST,
-    port: Number(process.env.DB_PORT || 5432),
-    database: process.env.DB_DATABASE,
-    user: process.env.DB_USERNAME,
-    password: process.env.DB_PASSWORD,
+    host: process.env.SNAPSHOT_DB_HOST,
+    port: Number(process.env.SNAPSHOT_DB_PORT || 5432),
+    database: process.env.SNAPSHOT_DB_DATABASE,
+    user: process.env.SNAPSHOT_DB_USERNAME,
+    password: process.env.SNAPSHOT_DB_PASSWORD,
     max: 1,
     connectionTimeoutMillis: 5000,
   });

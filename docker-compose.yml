@@ -4,12 +4,12 @@ services:
     image: postgres:18
     environment:
       - POSTGRES_DB=postgres
-      - POSTGRES_USER=${INTERNAL_DB_USERNAME:-chatbot_admin}
-      - POSTGRES_PASSWORD=${INTERNAL_DB_PASSWORD:?set INTERNAL_DB_PASSWORD in .env}
+      - POSTGRES_USER=${ADMIN_DB_USERNAME:-chatbot_admin}
+      - POSTGRES_PASSWORD=${ADMIN_DB_PASSWORD:?set ADMIN_DB_PASSWORD in .env}
     volumes:
       - db-data:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${INTERNAL_DB_USERNAME:-chatbot_admin} -d postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${ADMIN_DB_USERNAME:-chatbot_admin} -d postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -29,16 +29,19 @@ services:
       # When set, the source DB above is ignored and this dump (mounted below
       # from ./${SOURCE_DUMP_FILE}) is restored instead. See .env.example.
       - SOURCE_DUMP_FILE=${SOURCE_DUMP_FILE:+/seed/dump}
-      - INTERNAL_DB_HOST=db
-      - INTERNAL_DB_PORT=5432
-      - INTERNAL_DB_USERNAME=${INTERNAL_DB_USERNAME:-chatbot_admin}
-      - INTERNAL_DB_PASSWORD=${INTERNAL_DB_PASSWORD:?set INTERNAL_DB_PASSWORD in .env}
-      - CHATBOT_DB_PASSWORD=${CHATBOT_DB_PASSWORD:?set CHATBOT_DB_PASSWORD in .env}
+      # Superuser of the internal Postgres — only this service ever uses it.
+      - ADMIN_DB_HOST=db
+      - ADMIN_DB_PORT=5432
+      - ADMIN_DB_USERNAME=${ADMIN_DB_USERNAME:-chatbot_admin}
+      - ADMIN_DB_PASSWORD=${ADMIN_DB_PASSWORD:?set ADMIN_DB_PASSWORD in .env}
+      # Read-only role over the snapshot (created here, used by the app).
+      - SNAPSHOT_DB_USERNAME=${SNAPSHOT_DB_USERNAME:-chatbot}
+      - SNAPSHOT_DB_PASSWORD=${SNAPSHOT_DB_PASSWORD:?set SNAPSHOT_DB_PASSWORD in .env}
       # Read/write role + database for saved chat history (created here, used by
       # the app). Separate from the snapshot, which is dropped every cycle.
-      - APP_DB_DATABASE=${APP_DB_DATABASE:-chatbot_app}
-      - APP_DB_USERNAME=${APP_DB_USERNAME:-chatbot_app}
-      - APP_DB_PASSWORD=${APP_DB_PASSWORD:-}
+      - HISTORY_DB_DATABASE=${HISTORY_DB_DATABASE:-chatbot_app}
+      - HISTORY_DB_USERNAME=${HISTORY_DB_USERNAME:-chatbot_app}
+      - HISTORY_DB_PASSWORD=${HISTORY_DB_PASSWORD:-}
       - SYNC_INTERVAL_SECONDS=${SYNC_INTERVAL_SECONDS:-3600}
     volumes:
       - ./sync:/sync:ro
@@ -60,17 +63,19 @@ services:
       - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-opus-5}
       - CHAT_USERNAME=${CHAT_USERNAME}
       - CHAT_PASSWORD=${CHAT_PASSWORD}
-      - DB_HOST=db
-      - DB_PORT=5432
-      - DB_DATABASE=masterly_snapshot
-      - DB_USERNAME=chatbot
-      - DB_PASSWORD=${CHATBOT_DB_PASSWORD}
+      - SESSION_SECRET=${SESSION_SECRET:-}
+      # Snapshot: read-only, this is what the model's run_sql tool runs as.
+      - SNAPSHOT_DB_HOST=db
+      - SNAPSHOT_DB_PORT=5432
+      - SNAPSHOT_DB_DATABASE=masterly_snapshot
+      - SNAPSHOT_DB_USERNAME=${SNAPSHOT_DB_USERNAME:-chatbot}
+      - SNAPSHOT_DB_PASSWORD=${SNAPSHOT_DB_PASSWORD}
       # Chat history: same Postgres instance, its own database and read/write role.
-      - APP_DB_HOST=db
-      - APP_DB_PORT=5432
-      - APP_DB_DATABASE=${APP_DB_DATABASE:-chatbot_app}
-      - APP_DB_USERNAME=${APP_DB_USERNAME:-chatbot_app}
-      - APP_DB_PASSWORD=${APP_DB_PASSWORD:-}
+      - HISTORY_DB_HOST=db
+      - HISTORY_DB_PORT=5432
+      - HISTORY_DB_DATABASE=${HISTORY_DB_DATABASE:-chatbot_app}
+      - HISTORY_DB_USERNAME=${HISTORY_DB_USERNAME:-chatbot_app}
+      - HISTORY_DB_PASSWORD=${HISTORY_DB_PASSWORD:-}
       - CLAUDE_CONFIG_DIR=/root/.claude
     volumes:
       - ./:/app

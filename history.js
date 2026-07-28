@@ -1,10 +1,11 @@
 // Chat history storage.
 //
-// Transcripts live in their own database (`chatbot_app`) — never in
-// `masterly_snapshot`, which the sync job drops and recreates every cycle. The
-// database and role come from sync/sync.sh; the tables are created here, lazily,
-// because the app owns that database. Calls made before it exists throw
-// HistoryUnavailableError so the caller can degrade instead of failing.
+// Transcripts live in their own database (HISTORY_DB_*, `chatbot_app` by
+// default) — never in `masterly_snapshot`, which the sync job drops and recreates
+// every cycle. The database and role come from sync/sync.sh; the tables are
+// created here, lazily, because the app owns that database. Calls made before it
+// exists throw HistoryUnavailableError so the caller can degrade instead of
+// failing.
 import pg from 'pg';
 
 const MAX_TITLE_CHARS = 80;
@@ -19,15 +20,15 @@ export class HistoryUnavailableError extends Error {
   }
 }
 
-export const historyConfigured = Boolean(process.env.APP_DB_PASSWORD);
+export const historyConfigured = Boolean(process.env.HISTORY_DB_PASSWORD);
 
 const pool = historyConfigured
   ? new pg.Pool({
-      host: process.env.APP_DB_HOST || process.env.DB_HOST,
-      port: Number(process.env.APP_DB_PORT || process.env.DB_PORT || 5432),
-      database: process.env.APP_DB_DATABASE || 'chatbot_app',
-      user: process.env.APP_DB_USERNAME || 'chatbot_app',
-      password: process.env.APP_DB_PASSWORD,
+      host: process.env.HISTORY_DB_HOST || process.env.SNAPSHOT_DB_HOST,
+      port: Number(process.env.HISTORY_DB_PORT || process.env.SNAPSHOT_DB_PORT || 5432),
+      database: process.env.HISTORY_DB_DATABASE || 'chatbot_app',
+      user: process.env.HISTORY_DB_USERNAME || 'chatbot_app',
+      password: process.env.HISTORY_DB_PASSWORD,
       max: 5,
       options: '-c search_path=public',
       statement_timeout: 10000,
@@ -42,7 +43,6 @@ CREATE TABLE IF NOT EXISTS chat_conversations (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   owner       text NOT NULL,
   title       text NOT NULL DEFAULT 'New chat',
-  renamed     boolean NOT NULL DEFAULT false,
   created_at  timestamptz NOT NULL DEFAULT now(),
   updated_at  timestamptz NOT NULL DEFAULT now()
 );
@@ -67,7 +67,7 @@ let lastFailureAt = 0;
 // Resolves once the tables exist. A failure is remembered only briefly so the
 // next request retries — the app usually boots before sync creates the database.
 function ensureSchema() {
-  if (!pool) return Promise.reject(new HistoryUnavailableError(new Error('APP_DB_PASSWORD is not set')));
+  if (!pool) return Promise.reject(new HistoryUnavailableError(new Error('HISTORY_DB_PASSWORD is not set')));
   if (schemaReady) return schemaReady;
   if (Date.now() - lastFailureAt < RETRY_AFTER_MS) {
     return Promise.reject(new HistoryUnavailableError(new Error('waiting before retrying')));
@@ -147,7 +147,7 @@ export async function listConversations(owner, search) {
 export async function getConversation(owner, id) {
   if (!isUuid(id)) return null;
   const { rows } = await query(
-    `SELECT id, title, renamed, created_at, updated_at
+    `SELECT id, title, created_at, updated_at
        FROM chat_conversations WHERE id = $1 AND owner = $2`,
     [id, owner],
   );
@@ -161,7 +161,6 @@ export async function getConversation(owner, id) {
   return {
     ...shape(rows[0]),
     questionCount: messages.rows.filter((m) => m.role === 'user').length,
-    renamed: rows[0].renamed,
     messages: messages.rows.map((m) => ({
       role: m.role,
       content: m.content,
@@ -176,7 +175,7 @@ export async function createConversation(owner, title) {
      RETURNING id, title, created_at, updated_at`,
     [owner, titleFrom(title)],
   );
-  return { ...shape(rows[0]), renamed: false, messages: [] };
+  return { ...shape(rows[0]), messages: [] };
 }
 
 // Appends a message and bumps updated_at in one round trip. The INSERT selects
@@ -199,20 +198,6 @@ export async function appendMessage(owner, conversationId, role, content) {
   return rows.length > 0;
 }
 
-export async function renameConversation(owner, id, title) {
-  if (!isUuid(id)) return null;
-  const clean = String(title).trim().slice(0, MAX_TITLE_CHARS);
-  if (!clean) return null;
-  const { rows } = await query(
-    // updated_at is deliberately left alone: renaming should not reorder the list.
-    `UPDATE chat_conversations SET title = $3, renamed = true
-      WHERE id = $1 AND owner = $2
-      RETURNING id, title, created_at, updated_at`,
-    [id, owner, clean],
-  );
-  return rows.length ? shape(rows[0]) : null;
-}
-
 export async function deleteConversation(owner, id) {
   if (!isUuid(id)) return false;
   const { rowCount } = await query('DELETE FROM chat_conversations WHERE id = $1 AND owner = $2', [
@@ -230,6 +215,25 @@ export async function deleteAllConversations(owner) {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export function isUuid(value) {
   return typeof value === 'string' && UUID.test(value);
+}
+
+// Connection check for /api/health. Never throws: an unreachable history
+// database is a degraded state the page reports, not a request failure.
+export async function checkHealth() {
+  if (!pool) {
+    return { ok: false, configured: false, detail: 'HISTORY_DB_PASSWORD is not set — chats are not saved.' };
+  }
+  try {
+    await ensureSchema();
+    const { rows } = await pool.query(
+      `SELECT current_database() AS "database",
+              current_user      AS "role",
+              (SELECT count(*)::int FROM chat_conversations) AS conversations`,
+    );
+    return { ok: true, configured: true, ...rows[0] };
+  } catch (err) {
+    return { ok: false, configured: true, detail: (err.cause || err).message };
+  }
 }
 
 export async function close() {
